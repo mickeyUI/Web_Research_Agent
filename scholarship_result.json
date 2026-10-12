@@ -1,0 +1,20 @@
+{
+  "title": null,
+  "organization": null,
+  "eligible_countries": [],
+  "education_levels": [],
+  "fields": [],
+  "minimum_gpa": null,
+  "max_age": null,
+  "funding": {
+    "tuition": "unknown",
+    "living": "unknown",
+    "travel": "unknown",
+    "accommodation": "unknown"
+  },
+  "english_requirement": null,
+  "deadline": null,
+  "required_documents": [],
+  "application_url": null,
+  "number_of_departments": null
+}
