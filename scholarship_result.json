@@ -1,9 +1,15 @@
 {
   "title": null,
-  "organization": null,
-  "eligible_countries": [],
-  "education_levels": [],
-  "fields": [],
+  "organization": "Wellesley College",
+  "eligible_countries": [
+    "United States"
+  ],
+  "education_levels": [
+    "undergraduate"
+  ],
+  "fields": [
+    "Tuition Promise"
+  ],
   "minimum_gpa": null,
   "max_age": null,
   "funding": {
@@ -16,5 +22,8 @@
   "deadline": null,
   "required_documents": [],
   "application_url": null,
-  "number_of_departments": null
+  "number_of_departments": null,
+  "need_blind": "Yes, need-blind admission for U.S. citizens and permanent residents",
+  "financial_aid_policy": "Wellesley meets 100% of calculated need for all admitted students",
+  "tuition_waiver_threshold": "$200,000 total family income"
 }
