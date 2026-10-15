@@ -1,0 +1,128 @@
+====================================================================================================================================
+
+    def stub_old_tool_results(messages):
+    """Replace stale get_links AND scanPage results with short placeholders.
+    Keeps only the newest of each type in full; everything older is stubbed
+    so the message history doesn't blow the token budget."""
+    links_idx = []  # positions of get_links results in the history
+    scan_idx = []  # positions of scanPage results in the history
+    last_open = -1  # position of the latest SUCCESSFUL openPage result
+
+    for i, m in enumerate(messages):
+        # The history mixes plain dicts (tool results) with SDK objects (model replies).
+        # Only dicts can be tool results, so skip everything else.
+        if not (isinstance(m, dict) and m.get("role") == "tool"):
+            continue
+        name = tool_names.get(m.get("tool_call_id"))
+        if name == "get_links":
+            links_idx.append(i)
+        elif name == "scanPage":
+            scan_idx.append(i)
+        elif name == "openPage" and str(m.get("content", "")).startswith("navigated"):
+            last_open = (
+                i  # failed opens ("error: ...") don't count: the page didn't change
+            )
+
+    stubbed = 0
+
+    # --- stub old link lists (keep only the newest, and only if still on the same page) ---
+    newest = links_idx[-1] if links_idx else -1
+    for i in links_idx:
+        m = messages[i]
+        keep = i == newest and i > last_open  # newest list, and still on the same page
+        if keep or str(m["content"]).startswith(
+            STUB_PREFIX
+        ):  # keep it, or it's already a placeholder
+            continue
+        info = link_list_info.get(m["tool_call_id"], {})
+        # Content is replaced, never the message itself: the API needs every tool call paired with a result
+        m["content"] = (
+            f"{STUB_PREFIX} {info.get('path', '?')} removed, {info.get('count', '?')} links; "
+            f"call get_links to list the links on your current page)"
+        )
+        stubbed += 1
+
+    # --- stub old scanPage results (keep only the newest one) ---
+    newest_scan = scan_idx[-1] if scan_idx else -1
+    for i in scan_idx:
+        m = messages[i]
+        if i == newest_scan or str(m["content"]).startswith(SCAN_STUB_PREFIX):
+            continue  # keep the newest, skip already-stubbed
+        m["content"] = (
+            f"{SCAN_STUB_PREFIX} an earlier page, removed from memory to save tokens)"
+        )
+        stubbed += 1
+
+    if stubbed:
+        print(
+            f"stubbed {stubbed} old tool result(s)"
+        )  # debug line so you can see it working
+
+====================================================================================================================================
+
+{
+  "organization": "Wellesley College",
+  "eligible_countries": [
+    "United States (citizens and permanent residents)",
+    "International (non U.S. citizens or permanent residents)"
+  ],
+  "notable_accolades": "Premier U.S. college; need-blind admission; #1 among liberal arts peers in research funding for faculty",
+  "education_levels": "first-year",
+  "fields": [
+    "50+ departmental and interdepartmental majors to explore",
+    "Cinema & media studies",
+    "cognitive & linguistic sciences",
+    "biochemistry"
+  ],
+  "minimum_gpa": null,
+  "max_age": "24",
+  "english_proficency_required": [],
+  "deadline": "Early Decision I: November 1, Early Decision II: January 5, Regular Decision: January 8, Transfer and Davis Degree Program: March 1",
+  "required_documents": [
+    "transcripts",
+    "school report",
+    "recommendation letters",
+    "personal essay",
+    "Wellesley-specific essay",
+    "financial aid application"
+  ],
+  "application_url": null,
+  "application process": "Common Application, QuestBridge Application, Coalition Application",
+  "university_specific_essay_required": "Yes",
+  "number_of_recommendation_letters_required": "2",
+  "need_blind": "Yes",
+  "financial_aid_policy": "We meet 100% of calculated need for all admitted students.",
+  "tuition_waiver_threshold": "$200,000 annual income or less",
+  "accepted_application_platform": "Common Application, QuestBridge Application, Coalition Application",
+  "application_fee": "$0"
+},
+{
+  "organization": "Amherst College",
+  "eligible_countries": [
+    "International students (including DACA",
+    "undocumented individuals",
+    "those with fragile citizenship",
+    "and non-citizen permanent residents)"
+  ],
+  "notable_accolades": "Financial aid program is among the most comprehensive and ambitious in the nation",
+  "education_levels": "Undergraduate (first-year and transfer)",
+  "fields": [],
+  "minimum_gpa": null,
+  "max_age": null,
+  "english_proficency_required": [],
+  "deadline": "Early Decision: application deadline November 9 2026; financial aid deadline November 13 2026. Regular Decision: application deadline January 5 2027; financial aid deadline January 15 2027. Transfer Spring enrollment: application deadline November 2 2026. Transfer Fall enrollment: application deadline March 1 2027",
+  "required_documents": [
+    "Secondary school transcript; Teacher and counselor recommendations; Essays and writing supplement; Standardized test results (optional); Extra‑ and co‑curricular involvements",
+    "talents",
+    "and leadership"
+  ],
+  "application_url": null,
+  "application process": "Submit admission application and FAFSA on time; application materials must be submitted by the respective deadlines",
+  "university_specific_essay_required": null,
+  "number_of_recommendation_letters_required": null,
+  "need_blind": "Yes, need-blind for all applicants (domestic, international, undocumented)",
+  "financial_aid_policy": "Average aid award $71,000+ (2024-25)",
+  "tuition_waiver_threshold": null,
+  "accepted_application_platform": null,
+  "application_fee": null
+}
