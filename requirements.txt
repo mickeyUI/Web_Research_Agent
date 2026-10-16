@@ -2,3 +2,4 @@ playwright
 python-dotenv
 openai
 groq
+fastapi[standard]

@@ -1,11 +1,10 @@
 {
   "organization": "Duke University",
   "eligible_countries": [
-    "North Carolina",
-    "South Carolina"
+    "All countries (international applicants welcome)"
   ],
-  "notable_accolades": "country’s premier research institutions",
-  "education_levels": "Undergraduate",
+  "notable_accolades": "University’s most ambitious fundraising and engagement effort ever",
+  "education_levels": "graduate",
   "fields": [
     "Arts & Sciences",
     "Engineering"
@@ -19,30 +18,30 @@
     "Transfer: March 15"
   ],
   "required_documents": [
-    "transcripts",
-    "tests",
-    "recommendations",
-    "extracurricular activities",
-    "essays",
-    "application fee",
-    "interviews",
-    "supplements"
+    "Application Information",
+    "Decision Plans",
+    "Transcripts",
+    "Tests",
+    "Recommendations",
+    "Extracurricular Activities",
+    "Essays",
+    "Application Fee",
+    "Interviews",
+    "Supplements"
   ],
   "application_url": null,
-  "application process": "First-year applicants may apply using Common Application or QuestBridge Application for eligible students. Transfer applicants may apply using Duke Transfer Application or the Coalition, powered by Scoir.",
-  "university_specific_essay_required": "Personal essay: one-page essay with short-answer questions specific to Duke; optional personal essay",
-  "number_of_recommendation_letters_required": "3",
+  "application process": "Common Application, QuestBridge Application, Duke Transfer Application, Coalition (powered by Scoir)",
+  "university_specific_essay_required": null,
+  "number_of_recommendation_letters_required": null,
   "need_blind": null,
-  "financial_aid_policy": "52% of Duke students receive some form of financial aid",
+  "financial_aid_policy": "100% of a student’s demonstrated financial need met by Duke",
   "tuition_waiver_threshold": "$150,000",
   "accepted_application_platform": "Common Application, QuestBridge Application, Duke Transfer Application, Coalition (powered by Scoir)",
   "application_fee": null,
   "country_located": null,
   "campus_locations": [],
   "university_type": null,
-  "international_student_population": "14%",
-  "minimum_standardized_test_scores": [
-    "SAT 1520-1570 (middle 50% range for admitted students who submitted scores)"
-  ],
+  "international_student_population": null,
+  "minimum_standardized_test_scores": [],
   "school_year_starting_date": null
 }
