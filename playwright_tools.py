@@ -10,12 +10,14 @@ from groq import APIConnectionError, BadRequestError, Groq, RateLimitError
 from playwright.sync_api import sync_playwright
 
 from helper_functions import (
-    NOTE_FIELDS,
     ask_llm_for_relevant_controls,
     call_user,
     clean_text,
     clean_url,
     ext_tools,
+    fields,
+    get_missing_fields,
+    get_notes_summary,
     interrupt_and_change,
     is_junk,
     load_previous_results,
@@ -26,7 +28,6 @@ from helper_functions import (
     save_note,
     save_results,
     short_path,
-    target_manager,
     targets_unchecked,
 )
 
@@ -34,7 +35,9 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 load_dotenv()
-
+nxt = next_target_field()
+if nxt:
+    target_field = nxt
 # ------------------------------------------------------------ config ----
 # Edit these lists/values freely; none of the logic below needs to change.
 START_URL = "https://www.duke.edu/admissions/"
@@ -86,13 +89,14 @@ link_list_info = {}  # tool_call_id -> {"path": page path, "count": number of li
 visited_links = []
 page_history = []
 page = None
+button_registry = {}  # btn_id -> {"label": str, "index": int}  populated by scanAndExtract's button detector
 
 # =====================================================================
 
 
 # =======================================================================
 client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY2"),
+    api_key=os.environ.get("GROQ_API_KEY_ICLONE"),
 )
 
 # =====================================================================
@@ -101,12 +105,30 @@ client = Groq(
 # =====================================================================
 
 
-load_previous_results()
-nxt = next_target_field()
-if nxt:
-    target_field = nxt
-
 # The only fields the model may save notes for (funding is flattened into four fields)
+
+
+# --------------------------------------------------------- clickButton ----
+def clickButton(btn_id: int):
+    """Click a tab/accordion button by its btn_id (from scanAndExtract's button list)."""
+    global button_registry
+    if btn_id not in button_registry:
+        return f"error: btn_id {btn_id} not found. Call scanAndExtract first to get the button list."
+    entry = button_registry[btn_id]
+    label = entry["label"]
+    index = entry["index"]
+    try:
+        # Re-select by the same query used during detection, using nth(index)
+        btn = page.locator(
+            "button[aria-controls], button[aria-expanded], [role='tab']"
+        ).nth(index)
+        btn.scroll_into_view_if_needed()
+        btn.click()
+        page.wait_for_timeout(700)  # let JS update the DOM
+        print(f"  clicked button [{btn_id}]: '{label}'")
+        return f"Clicked '{label}'. Call scanAndExtract again to read the revealed content."
+    except Exception as e:
+        return f"error clicking button '{label}': {e}"
 
 
 def runFunction(
@@ -120,6 +142,7 @@ def runFunction(
         "save_note": save_note,
         "save_results": save_results,
         "call_user": call_user,
+        "clickButton": clickButton,
     }
     try:
         function = functions[function_name]
@@ -131,6 +154,8 @@ def runFunction(
             if "link_id" in args:
                 return openPage(link_id=args["link_id"], page=current_page)
             return openPage(page=current_page, **args)
+        elif function_name == "clickButton":
+            return clickButton(btn_id=args["btn_id"])
         elif args:
             return function(**args)
         else:
@@ -635,9 +660,60 @@ def scanAndExtract():
     )
     if "CAPTCHA" in text or "verification" in text:
         time.sleep(60)
-    count = 0
-    extractor_user_prompt = f"""Inspect the following webpage and save all newly discovered scholarship information using `save_note`.
 
+    # ---- Detect interactive tab / accordion buttons on this page ----
+    button_registry.clear()
+    btn_summary = ""
+    try:
+        detected = page.evaluate("""() => {
+            const selector = "button[aria-controls], button[aria-expanded], [role='tab']";
+            const els = [...document.querySelectorAll(selector)];
+            return els.map((el, i) => ({
+                index: i,
+                label: (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 80),
+                expanded: el.getAttribute('aria-expanded'),
+                hidden: el.offsetParent === null
+            }));
+        }""")
+        btn_id = 0
+        lines = []
+        for item in detected:
+            # Only surface visible buttons that are collapsed (expanded=false or null)
+            if item["hidden"]:
+                continue
+            if item["expanded"] == "true":
+                continue  # already open
+            label = item["label"] or f"(unlabelled button {item['index']})"
+            button_registry[btn_id] = {"label": label, "index": item["index"]}
+            lines.append(f"  [{btn_id}] {label}")
+            btn_id += 1
+        if lines:
+            btn_summary = (
+                "\n\nInteractive buttons found on this page (call clickButton to reveal hidden content):\n"
+                + "\n".join(lines)
+            )
+            print(f"  detected {len(lines)} interactive button(s)")
+    except Exception as e:
+        print(f"  button detection failed: {e}")
+    # -----------------------------------------------------------------
+
+    count = 0
+    # Build dynamic context: what's already found vs. what's still missing
+    _found = get_notes_summary()
+    _missing = get_missing_fields()
+
+    _found_block = (
+        "\n".join(f"  {f}: {v[:80]}" for f, v in _found.items())
+        if _found
+        else "  (none yet)"
+    )
+    _missing_block = (
+        "\n".join(f"  - {t['target']}: {t['discription'][:120]}" for t in _missing)
+        if _missing
+        else "  (all fields found)"
+    )
+
+    extractor_user_prompt = f"""Inspect the following webpage and save all newly discovered scholarship information using `save_note`.
 ## Active target
 Field name: {target_field["target"]}
 Field description: {target_field["discription"]}
@@ -645,17 +721,20 @@ Field description: {target_field["discription"]}
 Prioritize finding reliable information about this field, but do not limit extraction to it.
 
 ## Instructions
-1. Examine the page content for every field defined in `NOTE_FIELDS`.
+1. Examine the page content for every field in the FIELDS TO FIND list below.
 2. Identify facts that are explicitly supported by the page.
-3. Compare your findings with the existing notes to avoid duplicate saves.
+3. Do NOT re-save fields listed under ALREADY RECORDED — skip them unless you have a material correction.
 4. Use `save_note` to record each new or materially improved finding according to the tool's actual schema.
 5. Preserve relevant conditions, dates, amounts, units, and exceptions.
 6. Do not overwrite valid existing information with empty, weaker, or unsupported findings.
 7. If the page contradicts an existing note, preserve the conflicting evidence rather than silently discarding either version.
 8. After recording the findings, respond with 'done'.
 
-Previously recorded notes:
-{notes[-10:] if notes else "None yet."}
+## ALREADY RECORDED (do not re-save these)
+{_found_block}
+
+## FIELDS TO FIND (focus here)
+{_missing_block}
 
 Page content:
 {text[:WEBPAGE_BODYTEXT_MAX]}
@@ -774,7 +853,7 @@ Page content:
                     f.write(str(context_report))
             except Exception as e:
                 print(f"error logging extractor report: {e}")
-            return response.content
+            return (response.content or "") + btn_summary
 
     try:
         now = datetime.now()
@@ -790,7 +869,7 @@ Page content:
     except Exception as e:
         print(f"error logging extractor report: {e}")
 
-    return f"Extraction finished on {page.url}. Total notes: {len(notes)}"
+    return f"Extraction finished on {page.url}. Total notes: {len(notes)}" + btn_summary
 
 
 def error_code(e):
@@ -807,21 +886,52 @@ def error_code(e):
 
 NAV_SYSTEM_PROMPT = """You are the navigation agent for a scholarship research system. Your job is to decide which links to follow to find information about the current target_field.
 
-Your workflow on each page:
-1. Always call `scanAndExtract` first on the current page to extract all scholarship information present.
-2. Call `get_links` to view candidate links on the current page.
-3. Choose the most promising link for the current `target_field` and call `openPage` with its `link_id`.
-4. Consider indirect paths: relevant information for a target may be located under broader pages like admissions, costs, funding, financial aid, or applicant requirements.
-5. Skip irrelevant links (e.g., athletics, news, alumni magazine, social media, login).
-6. When all target fields have been investigated, call `save_results`.
+Your workflow — complete all steps IN A SINGLE TURN before waiting for the next message:
+1. Call `scanAndExtract` on the current page to extract all scholarship information present.
+2. If the result lists "Interactive buttons found on this page", call `clickButton(btn_id)` for each button whose label is relevant to the current target Then call `scanAndExtract` again to read the newly revealed content.
+3. Call `get_links` to view candidate links on the current page.
+4. Pick the most promising link for the current `target_field` and call `openPage` with its `link_id` — all in the same turn.
 
-Use only the provided tools: `scanAndExtract`, `get_links`, `openPage`, `save_results`, `call_user`."""
+Additional rules:
+- Consider indirect paths: relevant information for a target may be located under broader pages like admissions, costs, funding, financial aid, or applicant requirements.
+- Skip irrelevant links (e.g., athletics, news, alumni magazine, social media, login).
+- Skip pages already listed under "Already visited URLs" — jump to the most relevant unvisited link instead.
+- Fields listed under "Already found" are complete — do not navigate solely for them.
+- When all target fields have been investigated, call `save_results`.
 
-NAV_USER_PROMPT = f"""Research this university website for the current target field: '{target_field["target"]}'.
-Description: {target_field["discription"]}
-Starting URL: {START_URL}
+Use only the provided tools: `scanAndExtract`, `clickButton`, `get_links`, `openPage`, `save_results`, `call_user`."""
 
-Begin by calling `scanAndExtract` on the homepage, then call `get_links` to choose the best link for this target."""
+
+def build_nav_user_prompt(active_target, visited):
+    """Build the Navigator's opening user message with live context.
+
+    active_target: dict with 'target' and 'discription' keys (current target_field)
+    visited: list of already-visited URL strings (visited_links)
+    """
+    found_summary = get_notes_summary()
+    missing = get_missing_fields()
+
+    found_lines = (
+        "\n".join(f"  - {f}: {v[:80]}" for f, v in found_summary.items())
+        or "  (none yet)"
+    )
+
+    missing_names = ", ".join(t["target"] for t in missing) or "(all found)"
+
+    visited_block = (
+        "\n".join(f"  - {u}" for u in visited[-20:]) if visited else "  (none yet)"
+    )
+
+    return (
+        f"Research this university website for the current target field: '{active_target['target']}'.\n"
+        f"Description: {active_target['discription']}\n"
+        f"Starting URL: {START_URL}\n\n"
+        f"## Already found (skip navigating solely for these)\n{found_lines}\n\n"
+        f"## Still missing\n{missing_names}\n\n"
+        f"## Already visited URLs (skip re-scanning these — jump to the best unvisited link)\n{visited_block}\n\n"
+        "Begin: call `scanAndExtract`, then `get_links`, then `openPage` — all in this turn."
+    )
+
 
 EXTRACTOR_SYSTEM_PROMPT = f"""You are the information extraction agent for a scholarship research system.
 
@@ -830,7 +940,7 @@ tool, which you must use to record newly discovered information.
 
 Core responsibilities:
 1. Extract all relevant fields:
-Use these fields `{NOTE_FIELDS}` definitions as the source of truth for which fields can be recorded.
+Use these fields `{fields}` definitions as the source of truth for which fields can be recorded.
 Do not restrict extraction to the active navigation target. The target tells you what information is especially important, but you must record other useful discoveries too.
 
 2. Record facts using save_note:
@@ -848,13 +958,26 @@ Do not restrict extraction to the active navigation target. The target tells you
 - Preserve qualifying language such as "up to," "may receive," "for eligible applicants," and "subject to availability."
 - Distinguish full funding from partial funding.
 
-4. Finish correctly:
+4. Field validation rules — read carefully before saving:
+- `eligible_countries`: must be sovereign nations or citizenship categories (e.g., "United States", "international students").
+  US states are NOT countries. If a benefit is limited to residents of a specific US state, record it as:
+  "United States (eligible: [State] residents only)".
+- `fields`: must be academic programs, majors, or disciplines the institution offers (e.g., "Engineering, Humanities, Business").
+  Do NOT record research project descriptions, lab examples, or institute names as `fields`.
+- `notable_accolades`: must be formal, verifiable distinctions — e.g., "ranked #9 by US News 2024", a named prize, or an official
+  accreditation. Generic marketing phrases like "world-class institution" or "leading research university" do NOT qualify.
+- `education_levels`: classify as "undergraduate", "graduate", "doctoral", etc.
+  Do not create separate notes unless both undergraduate and graduate are explicitly confirmed on the same page.
+- `need_blind`: only record if the page explicitly uses the term "need-blind" or states that financial need is not considered
+  in the admissions decision. Do not infer this from a general financial aid policy.
+
+5. Finish correctly:
 After inspecting the page and recording all supported findings with `save_note`, reply with 'done'."""
 
 
 def start_researching():
     global target_field
-    target_field = target_manager[0]
+    load_previous_results()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         global page
@@ -865,7 +988,7 @@ def start_researching():
             {"role": "system", "content": NAV_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": NAV_USER_PROMPT,
+                "content": build_nav_user_prompt(target_field, visited_links),
             },
         ]
 
@@ -880,22 +1003,18 @@ def start_researching():
                 if next_target is None:
                     print("All targets have been found.")
                     break
+                target_field = next_target
+                page.goto(START_URL)
                 message.append(
                     {
                         "role": "user",
-                        "content": (
-                            f"The target field '{target_field['target']}' is found. You are now at the homepage(starting page) again "
-                            f"and your next target is '{next_target['target']}', with description: {next_target['discription']}. "
-                            "Call `scanAndExtract` or `get_links` to proceed."
-                        ),
+                        "content": build_nav_user_prompt(target_field, visited_links),
                     }
                 )
                 print(
-                    f"the target field {target_field['target']} is found. you are now at the homepage(starting page) again and you're next target is {next_target['target']}, with target discription: {next_target['discription']}"
+                    f"switched to next target: {target_field['target']} — {target_field['discription']}"
                 )
-                target_field = next_target
                 count = 0
-                page.goto(START_URL)
 
             count += 1
             print(
@@ -1072,6 +1191,7 @@ def start_researching():
             f"Final extracted data:\n{json.dumps(final_result, indent=2, ensure_ascii=False)}"
         )
         browser.close()
+        return final_result
 
 
 if __name__ == "__main__":

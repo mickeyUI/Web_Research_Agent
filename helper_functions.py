@@ -24,7 +24,7 @@ NOTE_FIELDS = [
     "required_documents",
     "application_url",
     "application process",
-    "university_specific_essay_required",
+    "essays_required",
     "number_of_recommendation_letters_required",
     "need_blind",
     "financial_aid_policy",
@@ -151,15 +151,6 @@ target_manager = [
         "status": "unknown",
     },
     {
-        "target": "university_specific_essay_required",
-        "discription": (
-            "Specifies whether the institution mandates supplemental, custom essay prompts "
-            "beyond general personal statements. It determines if applicants must compose "
-            "tailored narratives reflecting specific institutional values and fit."
-        ),
-        "status": "unknown",
-    },
-    {
         "target": "number_of_recommendation_letters_required",
         "discription": (
             "The exact quantity of professional or academic letters of recommendation "
@@ -169,19 +160,11 @@ target_manager = [
         "status": "unknown",
     },
     {
-        "target": "number_of_essays_required",
+        "target": "essays_required",
         "discription": (
-            "The exact quantity of essays mandated for a complete file."
-            "either be personal or specific to the university."
-        ),
-        "status": "unknown",
-    },
-    {
-        "target": "need_blind",
-        "discription": (
-            "Indicates whether an applicant's financial circumstances are excluded from "
-            "admissions evaluations. Under a need-blind policy, candidates are assessed "
-            "purely on merit without factoring in their ability to pay."
+            "what kind of essays are requred. examples are personal essays, university spicific essays etc."
+            "also the number of essays requried."
+            "any discription on the essays like what its prompts are. and number of characters required"
         ),
         "status": "unknown",
     },
@@ -279,6 +262,269 @@ target_manager = [
         ),
         "status": "unknown",
     },
+    {
+        "target": "funding_type",
+        "discription": (
+            "The category of financial support offered, such as merit-based, "
+            "need-based, government-funded, university-funded, or privately funded."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "annual_tuition_coverage_cost",
+        "discription": (
+            "The annual monetary amount or percentage of tuition covered by "
+            "the funding program. Include the currency and distinguish full "
+            "coverage from partial coverage."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "recommendation_letter_types",
+        "discription": (
+            "The required or accepted recommendation letter types, such as "
+            "academic, teacher, counselor, employer, or professional references."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "program_delivery_mode",
+        "discription": (
+            "The format in which the academic program is delivered, such as "
+            "on-campus, online, or hybrid."
+        ),
+        "status": "unknown",
+    },
+]
+
+fields = [
+    {
+        "field": "organization",
+        "discription": (
+            "The primary institution, foundation, or university offering the "
+            "opportunity. It identifies the governing entity responsible for "
+            "administering the program, reviewing candidates, and granting "
+            "admissions or funding decisions."
+        ),
+    },
+    {
+        "field": "eligible_countries",
+        "discription": (
+            "The designated nationalities, citizenship statuses, or geographic "
+            "regions eligible to apply. It establishes regional eligibility bounds, "
+            "outlining whether the program is open globally or restricted to specific "
+            "sovereign territories."
+        ),
+    },
+    {
+        "field": "notable_accolades",
+        "discription": (
+            "A record of key awards, prestige markers, institutional rankings, or "
+            "recognized honors associated with the entity or award. It highlights "
+            "the competitive distinction and external reputation of the program."
+        ),
+    },
+    {
+        "field": "education_levels",
+        "discription": (
+            "The specific academic tiers targeted by the opportunity, such as "
+            "high school, undergraduate, master's, or doctoral studies. It ensures "
+            "applicants match the requisite stage of their educational trajectory."
+        ),
+    },
+    {
+        "field": "fields",
+        "discription": (
+            "The qualifying academic disciplines, majors, or subject areas covered "
+            "by the program. It delineates whether support is restricted to STEM, "
+            "humanities, or other specializations, or open to all areas of study."
+        ),
+    },
+    {
+        "field": "minimum_gpa",
+        "discription": (
+            "The lowest acceptable grade point average or equivalent academic "
+            "score required for consideration. It establishes the baseline baseline "
+            "academic standard necessary to qualify for formal application review."
+        ),
+    },
+    {
+        "field": "max_age",
+        "discription": (
+            "The upper age limit an applicant must satisfy at the time of submission "
+            "or enrollment. It sets clear demographic thresholds for youth or "
+            "early-career programs that enforce chronological eligibility caps."
+        ),
+    },
+    {
+        "field": "english_proficency_required",
+        "discription": (
+            "A flag and standard indicating whether proof of English language "
+            "competence—such as TOEFL, IELTS, or Duolingo—is mandatory. It ensures "
+            "admitted candidates possess the linguistic capacity to engage fully in coursework."
+        ),
+    },
+    {
+        "field": "deadline",
+        "discription": (
+            "The final cut-off date and time by which all application materials, fees, "
+            "and supporting credentials must be submitted. It marks the formal closure "
+            "of the active intake window."
+        ),
+    },
+    {
+        "field": "required_documents",
+        "discription": (
+            "The complete inventory of necessary verification records, including "
+            "academic transcripts, resumes, identity cards, essays etc needed to apply to the university or scholarship. "
+            "These documents substantiate the applicant's qualifications during administrative screening."
+        ),
+    },
+    {
+        "field": "application_url",
+        "discription": (
+            "The official direct web portal or link where applicants initiate, complete, "
+            "and transmit their submission. It serves as the canonical digital entry "
+            "point for the application system."
+        ),
+    },
+    {
+        "field": "application process",
+        "discription": (
+            "The sequential procedure and operational stages required to complete an "
+            "application, from initial account creation to interviews and decision releases. "
+            "It guides the applicant through every milestone from start to finish."
+        ),
+    },
+    {
+        "field": "number_of_recommendation_letters_required",
+        "discription": (
+            "The exact quantity of professional or academic letters of recommendation "
+            "mandated for a complete file. It defines how many external evaluations from "
+            "mentors, professors, or supervisors must be uploaded."
+        ),
+    },
+    {
+        "field": "essays_required",
+        "discription": (
+            "what kind of essays are requred. examples are personal essays, university spicific essays etc."
+            "also the number of essays requried."
+            "any discription on the essays like what its prompts are. and number of characters required"
+        ),
+    },
+    {
+        "field": "financial_aid_policy",
+        "discription": (
+            "The institutional framework defining how grants, loans, scholarships, and "
+            "work-study funds are allocated. It clarifies whether aid meets full demonstrated "
+            "need and what conditions govern recurring disbursements."
+        ),
+    },
+    {
+        "field": "tuition_waiver_threshold",
+        "discription": (
+            "The financial, income, or merit criteria required to receive a full or partial "
+            "remission of tuition costs. It establishes the baseline at which the institution "
+            "absorbs instruction expenses on behalf of the student."
+        ),
+    },
+    {
+        "field": "accepted_application_platform",
+        "discription": (
+            "The centralized third-party software or proprietary portal used to collect applications, "
+            "such as the Common App, Coalition App, or an internal portal. It informs applicants "
+            "where their file must be created and lodged."
+        ),
+    },
+    {
+        "field": "application_fee",
+        "discription": (
+            "The non-refundable processing charge required to finalize and submit the application. "
+            "It outlines the baseline administrative cost alongside any eligible institutional "
+            "waiver options."
+        ),
+    },
+    {
+        "field": "country_located",
+        "discription": (
+            "The country where the university or institution is physically "
+            "located. Record the country in which the institution operates, "
+            "not the applicant's country of citizenship."
+        ),
+    },
+    {
+        "field": "campus_locations",
+        "discription": (
+            "The physical locations of the university's campuses, including "
+            "the cities, regions, and countries where its main campus and "
+            "additional campuses are situated."
+        ),
+    },
+    {
+        "field": "university_type",
+        "discription": (
+            "The classification of the university or institution, such as "
+            "public, private, nonprofit, for-profit, or specialized institution. "
+            "Record the classification explicitly stated by an official source."
+        ),
+    },
+    {
+        "field": "international_student_population",
+        "discription": (
+            "The number or percentage of students enrolled at the institution "
+            "who come from countries other than the institution's host country. "
+            "Record the reported figure, relevant academic year, and whether "
+            "the figure represents a count or percentage, if available."
+        ),
+    },
+    {
+        "field": "minimum_standardized_test_scores",
+        "discription": (
+            "The minimum required scores for standardized admission tests, "
+            "such as the SAT or ACT, for the relevant degree level or program. "
+            "Record each test separately, including minimum total scores, "
+            "section scores, applicable admission requirements, and whether "
+            "the test is required, optional, or not accepted."
+        ),
+    },
+    {
+        "field": "school_year_starting_date",
+        "discription": (
+            "The official date or approximate period when the institution's "
+            "academic year begins. Include the relevant term or intake, such "
+            "as fall, spring, or the first semester, and distinguish the start "
+            "of classes from orientation and application deadlines."
+        ),
+    },
+    {
+        "field": "funding_type",
+        "discription": (
+            "The category of financial support offered, such as merit-based, "
+            "need-based, government-funded, university-funded, or privately funded."
+        ),
+    },
+    {
+        "field": "annual_tuition_coverage_cost",
+        "discription": (
+            "The annual monetary amount or percentage of tuition covered by "
+            "the funding program. Include the currency and distinguish full "
+            "coverage from partial coverage."
+        ),
+    },
+    {
+        "field": "recommendation_letter_types",
+        "discription": (
+            "The required or accepted recommendation letter types, such as "
+            "academic, teacher, counselor, employer, or professional references."
+        ),
+    },
+    {
+        "field": "program_delivery_mode",
+        "discription": (
+            "The format in which the academic program is delivered, such as "
+            "on-campus, online, or hybrid."
+        ),
+    },
 ]
 
 notes = []  # every saved note lives here, in your Python code
@@ -361,6 +607,27 @@ nav_tools: list = [
     {
         "type": "function",
         "function": {
+            "name": "clickButton",
+            "description": (
+                "Click a tab or accordion button on the current page to reveal hidden content. "
+                "Use the btn_id from the list returned by scanAndExtract. "
+                "After clicking, call scanAndExtract again to read the newly revealed text."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "btn_id": {
+                        "type": "integer",
+                        "description": "The id of the button, from the interactive buttons list in scanAndExtract's result.",
+                    }
+                },
+                "required": ["btn_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "call_user",
             "description": "Call this if you encounter CAPTCHA or any other verification or signups",
             "parameters": {
@@ -388,6 +655,19 @@ def next_target_field():
             next_target = selected_target
             return next_target
     return None
+
+
+def get_notes_summary():
+    """Return a dict of field -> latest recorded value for all fields that have a note."""
+    summary = {}
+    for note in notes:
+        summary[note["field"]] = note["value"]  # last value wins per field
+    return summary
+
+
+def get_missing_fields():
+    """Return list of target dicts that are still 'unknown' (not yet found)."""
+    return [t for t in target_manager if t["status"] == "unknown"]
 
 
 # load previously saved results on scholarship_result.json to continue form where you left off in a new session
@@ -470,10 +750,8 @@ def save_results():
         "required_documents": [],
         "application_url": None,
         "application process": None,
-        "university_specific_essay_required": None,
         "number_of_recommendation_letters_required": None,
-        "number_of_essays_required": None,
-        "need_blind": None,
+        "essays_required": None,
         "financial_aid_policy": None,
         "tuition_waiver_threshold": None,
         "accepted_application_platform": [],
@@ -484,6 +762,11 @@ def save_results():
         "international_student_population": None,
         "minimum_standardized_test_scores": [],
         "school_year_starting_date": None,
+        "funding_type": None,
+        "annual_tuitioin_coveratge_cost": None,
+        "age_restrictions": None,
+        "recommendation_letter_types": None,
+        "program_delivery_mode": None,
     }
 
     for note in notes:
@@ -596,7 +879,7 @@ def short_path(url):
 
 # ---- candidate filtering & LLM selection ----
 client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY2"),
+    api_key=os.environ.get("GROQ_API_KEY_ICLONE"),
 )
 
 
@@ -745,3 +1028,9 @@ def nav_walkthrough_record(message, page_history, visited_links):
             f.write(str(context_report))
     except Exception as e:
         print(f"error making an entery: {e}")
+
+
+def previous_result():
+    with open("scholarship_result.json", "r", encoding="utf-8") as f:
+        previous_result = json.load(f)
+        return previous_result
