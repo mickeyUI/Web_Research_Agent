@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Google Flow Unlocker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="card">
+    <header class="header">
+      <div class="brand">
+        <img src="assets/icon-32.png" alt="Icon" width="24" height="24" class="brand-icon">
+        <div>
+          <h1 class="title">Flow Unlocker</h1>
+          <span class="version">v1.0.0 · Free &amp; Unrestricted</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="status-box">
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span class="status-text">Protection Active</span>
+      </div>
+      <p class="status-desc">Google Flow entitlement check will be intercepted automatically.</p>
+    </div>
+
+    <div class="info-group">
+      <div class="info-row">
+        <span class="info-label">Target Service</span>
+        <span class="info-value">flow.google.com</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Target RPC</span>
+        <span class="info-value">cPZSdc (Index 30)</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">License Status</span>
+        <span class="info-value info-highlight">Permanent (No DRM)</span>
+      </div>
+    </div>
+
+    <button id="open-flow-btn" class="btn primary-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+        <polyline points="15 3 21 3 21 9"></polyline>
+        <line x1="10" y1="14" x2="21" y2="3"></line>
+      </svg>
+      <span>Open Google Flow</span>
+    </button>
+
+    <footer class="footer">
+      <span>Auto-patches region checks directly in your browser.</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

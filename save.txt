@@ -126,3 +126,99 @@
   "accepted_application_platform": null,
   "application_fee": null
 }
+
+
+
+
+{
+  "organization": "Meredith College",
+  "eligible_countries": [
+    "International students from all countries"
+  ],
+  "notable_accolades": [
+    "nationally ranked"
+  ],
+  "education_levels": [
+    "undergraduate",
+    "graduate"
+  ],
+  "fields": [
+    "liberal arts"
+  ],
+  "minimum_gpa": null,
+  "max_age": null,
+  "english_proficency_required": [],
+  "deadline": [
+    {
+      "deadline_type": "OTHER",
+      "date": "Early Action: Application deadline October 30; Decisions Released on or before November 10; Financial assistance priority deadline November 15; Expected notification of financial assistance starting December 1; Deposit Deadline May 1"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "Early Action: Application deadline October 30; Decisions Released on or before November 10; Financial assistance priority deadline November 15; Expected notification of financial assistance starting December 1; Deposit Deadline May 1"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "Regular Decision Priority Deadline 1: Application deadline December 1; Expected notification on or before December 19"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "2025; Financial assistance application priority deadline January 15; Expected notification of financial assistance starting February 1; Deposit Deadline May 1"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "Regular Decision Priority Deadline 2: Application Deadline February 2"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "2026; Decisions Released on or before February 16"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "2026; Financial assistance application priority deadline February 15"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "2026; Expected notification of financial assistance starting February 28"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "2026; Enrollment Deposit Deadline May 1"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "2026"
+    },
+    {
+      "deadline_type": "OTHER",
+      "date": "Spring Applicants: Application deadline November 1; Expected notification Rolling starting in October; Financial assistance application priority deadline November 1; Expected notification of financial assistance by November 15; Deposit Deadline December 1"
+    }
+  ],
+  "required_documents": [
+    "Meredith’s Institutional Aid Application (International and undocumented applicants)",
+    "FAFSA (Early Action applicants seeking financial aid)"
+  ],
+  "application_url": null,
+  "application process": null,
+  "number_of_recommendation_letters_required": null,
+  "essays_required": null,
+  "financial_aid_policy": "Need-based institutional financial aid available for international students; first-year international students considered for merit-based scholarships including Full-Ride Merit Scholarship and Academic Merit Scholarship; transfer scholarships available for transfer international students",
+  "tuition_waiver_threshold": null,
+  "accepted_application_platform": [
+    "Common Application"
+  ],
+  "application_fee": null,
+  "country_located": "United States",
+  "campus_locations": [
+    "West Raleigh",
+    "NC"
+  ],
+  "university_type": null,
+  "minimum_standardized_test_scores": [],
+  "school_year_starting_date": null,
+  "funding_type": null,
+  "annual_tuitioin_coveratge_cost": null,
+  "age_restrictions": null,
+  "recommendation_letter_types": null,
+  "program_delivery_mode": null
+}

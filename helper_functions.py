@@ -9,7 +9,11 @@ from groq import Groq
 
 load_dotenv()
 
-START_URL = "https://www.duke.edu/admissions/"
+START_URL = "https://www.amherst.edu/"
+client = Groq(
+    api_key=os.environ.get("GROQ_API_KEY2") or os.environ.get("GROQ_API_KEY"),
+)
+
 
 NOTE_FIELDS = [
     "organization",
@@ -19,14 +23,12 @@ NOTE_FIELDS = [
     "fields",
     "minimum_gpa",
     "max_age",
-    "english_proficency_required",
     "deadline",
     "required_documents",
     "application_url",
-    "application process",
+    "application_process",
     "essays_required",
     "number_of_recommendation_letters_required",
-    "need_blind",
     "financial_aid_policy",
     "tuition_waiver_threshold",
     "accepted_application_platform",
@@ -34,9 +36,12 @@ NOTE_FIELDS = [
     "country_located",
     "campus_locations",
     "university_type",
-    "international_student_population",
     "minimum_standardized_test_scores",
     "school_year_starting_date",
+    "need_blind",
+    "sat_required",
+    "english_proficiency_required",
+    "accepted_english_proficiency_tests",
 ]
 
 target_manager = [
@@ -106,20 +111,11 @@ target_manager = [
         "status": "unknown",
     },
     {
-        "target": "english_proficency_required",
-        "discription": (
-            "A flag and standard indicating whether proof of English language "
-            "competence—such as TOEFL, IELTS, or Duolingo—is mandatory. It ensures "
-            "admitted candidates possess the linguistic capacity to engage fully in coursework."
-        ),
-        "status": "unknown",
-    },
-    {
         "target": "deadline",
         "discription": (
-            "The final cut-off date and time by which all application materials, fees, "
-            "and supporting credentials must be submitted. It marks the formal closure "
-            "of the active intake window."
+            "The application and financial aid cut-off dates and deadlines, including "
+            "Early Decision (ED / ED II), Early Action (EA / EA II), Regular Decision (RD), "
+            "and financial aid deadlines (FD). Record all specific dates and decision rounds."
         ),
         "status": "unknown",
     },
@@ -142,7 +138,7 @@ target_manager = [
         "status": "unknown",
     },
     {
-        "target": "application process",
+        "target": "application_process",
         "discription": (
             "The sequential procedure and operational stages required to complete an "
             "application, from initial account creation to interviews and decision releases. "
@@ -232,16 +228,6 @@ target_manager = [
         "status": "unknown",
     },
     {
-        "target": "international_student_population",
-        "discription": (
-            "The number or percentage of students enrolled at the institution "
-            "who come from countries other than the institution's host country. "
-            "Record the reported figure, relevant academic year, and whether "
-            "the figure represents a count or percentage, if available."
-        ),
-        "status": "unknown",
-    },
-    {
         "target": "minimum_standardized_test_scores",
         "discription": (
             "The minimum required scores for standardized admission tests, "
@@ -292,6 +278,47 @@ target_manager = [
         "discription": (
             "The format in which the academic program is delivered, such as "
             "on-campus, online, or hybrid."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "need_blind",
+        "discription": (
+            "Whether the institution uses need-blind admissions, meaning "
+            "an applicant's financial need is not considered when making "
+            "admission decisions. Do not confuse this with whether the "
+            "institution meets the student's full demonstrated financial need."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "sat_required",
+        "discription": (
+            "Whether SAT scores are mandatory for admission. Distinguish "
+            "required, optional, test-blind, and conditionally required "
+            "policies where possible. Consider the applicant's degree level "
+            "and application cycle when determining the requirement."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "english_proficiency_required",
+        "discription": (
+            "Whether proof of English proficiency is required for admission, "
+            "such as IELTS, TOEFL, or Duolingo English Test scores. Account "
+            "for exemptions, alternative accepted evidence, and requirements "
+            "that vary by applicant's country, prior education, or program."
+        ),
+        "status": "unknown",
+    },
+    {
+        "target": "accepted_english_proficiency_tests",
+        "discription": (
+            "The English proficiency tests accepted for admission, such as "
+            "IELTS Academic, TOEFL iBT, Duolingo English Test, PTE Academic, "
+            "or Cambridge English qualifications. Include any test-specific "
+            "minimum score requirements when available, and distinguish "
+            "accepted tests from tests that are mandatory."
         ),
         "status": "unknown",
     },
@@ -357,19 +384,11 @@ fields = [
         ),
     },
     {
-        "field": "english_proficency_required",
-        "discription": (
-            "A flag and standard indicating whether proof of English language "
-            "competence—such as TOEFL, IELTS, or Duolingo—is mandatory. It ensures "
-            "admitted candidates possess the linguistic capacity to engage fully in coursework."
-        ),
-    },
-    {
         "field": "deadline",
         "discription": (
-            "The final cut-off date and time by which all application materials, fees, "
-            "and supporting credentials must be submitted. It marks the formal closure "
-            "of the active intake window."
+            "The application and financial aid cut-off dates and deadlines, including "
+            "Early Decision (ED / ED II), Early Action (EA / EA II), Regular Decision (RD), "
+            "and financial aid deadlines (FD). Record all specific dates and decision rounds."
         ),
     },
     {
@@ -389,7 +408,7 @@ fields = [
         ),
     },
     {
-        "field": "application process",
+        "field": "application_process",
         "discription": (
             "The sequential procedure and operational stages required to complete an "
             "application, from initial account creation to interviews and decision releases. "
@@ -469,15 +488,6 @@ fields = [
         ),
     },
     {
-        "field": "international_student_population",
-        "discription": (
-            "The number or percentage of students enrolled at the institution "
-            "who come from countries other than the institution's host country. "
-            "Record the reported figure, relevant academic year, and whether "
-            "the figure represents a count or percentage, if available."
-        ),
-    },
-    {
         "field": "minimum_standardized_test_scores",
         "discription": (
             "The minimum required scores for standardized admission tests, "
@@ -523,6 +533,43 @@ fields = [
         "discription": (
             "The format in which the academic program is delivered, such as "
             "on-campus, online, or hybrid."
+        ),
+    },
+    {
+        "field": "need_blind",
+        "discription": (
+            "Whether the institution uses need-blind admissions, meaning "
+            "an applicant's financial need is not considered when making "
+            "admission decisions. Do not confuse this with whether the "
+            "institution meets the student's full demonstrated financial need."
+        ),
+    },
+    {
+        "field": "sat_required",
+        "discription": (
+            "Whether SAT scores are mandatory for admission. Distinguish "
+            "required, optional, test-blind, and conditionally required "
+            "policies where possible. Consider the applicant's degree level "
+            "and application cycle when determining the requirement."
+        ),
+    },
+    {
+        "field": "english_proficiency_required",
+        "discription": (
+            "Whether proof of English proficiency is required for admission, "
+            "such as IELTS, TOEFL, or Duolingo English Test scores. Account "
+            "for exemptions, alternative accepted evidence, and requirements "
+            "that vary by applicant's country, prior education, or program."
+        ),
+    },
+    {
+        "field": "accepted_english_proficiency_tests",
+        "discription": (
+            "The English proficiency tests accepted for admission, such as "
+            "IELTS Academic, TOEFL iBT, Duolingo English Test, PTE Academic, "
+            "or Cambridge English qualifications. Include any test-specific "
+            "minimum score requirements when available, and distinguish "
+            "accepted tests from tests that are mandatory."
         ),
     },
 ]
@@ -682,7 +729,10 @@ def load_previous_results():
                 for k, v in saved.items():
                     if v is not None and v != [] and v != "":
                         if isinstance(v, list):
-                            val_str = ", ".join(str(item) for item in v)
+                            if k == "deadline" and v and isinstance(v[0], dict):
+                                val_str = json.dumps(v)
+                            else:
+                                val_str = ", ".join(str(item) for item in v)
                         else:
                             val_str = str(v)
                         notes.append(
@@ -697,6 +747,189 @@ def load_previous_results():
                 )
         except Exception as e:
             print(f"Could not load previous results: {e}")
+
+
+def normalize_date_str(date_str, reference_year=None):
+    if not date_str:
+        return date_str
+    date_str = str(date_str).strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        return date_str
+    if date_str.lower() == "rolling":
+        return "Rolling"
+    if reference_year is None:
+        reference_year = datetime.now().year
+    formats = [
+        "%B %d, %Y",
+        "%b %d, %Y",
+        "%B %d %Y",
+        "%b %d %Y",
+        "%m/%d/%Y",
+        "%Y/%m/%d",
+        "%m-%d-%Y",
+        "%B %d",
+        "%b %d",
+        "%d %B",
+        "%d %b",
+    ]
+    for fmt in formats:
+        try:
+            if "%Y" not in fmt and "%y" not in fmt:
+                dt = datetime.strptime(f"{date_str} {reference_year}", f"{fmt} %Y")
+            else:
+                dt = datetime.strptime(date_str, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return date_str
+
+
+def standardize_deadline_items(parsed_items, reference_year=None):
+    standardized = []
+    if isinstance(parsed_items, list):
+        for item in parsed_items:
+            if isinstance(item, dict):
+                if "deadline_type" in item and "date" in item:
+                    dtype = str(item["deadline_type"]).strip().upper()
+                    dval = normalize_date_str(item["date"], reference_year)
+                    standardized.append({"deadline_type": dtype, "date": dval})
+                elif "type" in item and "date" in item:
+                    dtype = str(item["type"]).strip().upper()
+                    dval = normalize_date_str(item["date"], reference_year)
+                    standardized.append({"deadline_type": dtype, "date": dval})
+                else:
+                    for k, v in item.items():
+                        dtype = str(k).strip().upper()
+                        dval = normalize_date_str(v, reference_year)
+                        standardized.append({"deadline_type": dtype, "date": dval})
+            elif isinstance(item, str):
+                standardized.append(
+                    {
+                        "deadline_type": "OTHER",
+                        "date": normalize_date_str(item, reference_year),
+                    }
+                )
+    elif isinstance(parsed_items, dict):
+        if "deadline_type" in parsed_items and "date" in parsed_items:
+            standardized.append(
+                {
+                    "deadline_type": str(parsed_items["deadline_type"]).strip().upper(),
+                    "date": normalize_date_str(parsed_items["date"], reference_year),
+                }
+            )
+        else:
+            for k, v in parsed_items.items():
+                standardized.append(
+                    {
+                        "deadline_type": str(k).strip().upper(),
+                        "date": normalize_date_str(v, reference_year),
+                    }
+                )
+    return standardized
+
+
+def get_net_tuition_with_llm(organization):
+    system_prompt = """you are a university researcher agent that calculates the estimated tuition fee and returns the result.
+    the currency you should use is usd. your output should be just a number."""
+    user_prompt = f"""calculate the estimated tuition fee of {organization}"""
+    try:
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model="openai/gpt-oss-120b",
+            temperature=0.0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        clean_content = re.sub(
+            r"^```(?:json)?|```$", "", content, flags=re.MULTILINE
+        ).strip()
+        return int(clean_content)
+    except Exception as e:
+        print(e)
+        return None
+
+
+def parse_deadlines_with_llm(deadline_texts: list[str]) -> list[dict]:
+    if not deadline_texts:
+        return []
+
+    combined_notes = "\n".join(
+        f"- {txt}" for txt in dict.fromkeys(deadline_texts) if str(txt).strip()
+    )
+    if not combined_notes:
+        return []
+
+    current_year = datetime.now().year
+
+    system_prompt = (
+        "You are an expert admissions data parser. Your task is to extract all university admission "
+        "and financial aid deadlines from raw notes and format them as an array of JSON objects.\n\n"
+        'Each object must have exactly two keys: "deadline_type" and "date", formatted as:\n'
+        '{"deadline_type": "<TYPE_CODE>", "date": "<YYYY-MM-DD>"}\n\n'
+        "Standard deadline_type codes:\n"
+        "- 'ED': Early Decision (or 'ED1' if multiple ED rounds exist)\n"
+        "- 'ED2': Early Decision II\n"
+        "- 'EA': Early Action (or 'EA1' if multiple EA rounds exist)\n"
+        "- 'EA2': Early Action II\n"
+        "- 'RD': Regular Decision\n"
+        "- 'FD': Financial Aid Deadline (FAFSA, CSS Profile, institutional aid)\n"
+        "- 'RA': Rolling Admission\n"
+        "- 'PR': Priority Deadline\n"
+        "- 'TR': Transfer Deadline\n"
+        "- For other specific deadlines, use a concise uppercase code (e.g., 'SCHOLARSHIP', 'SPRING', 'INTERNATIONAL').\n\n"
+        "Date Formatting Rules for Date Range Queries:\n"
+        "- Every date MUST be formatted strictly in ISO format 'YYYY-MM-DD' (e.g. '2025-11-01') so it can be queried by date range.\n"
+        f"- If a note specifies a month and day but omits the year, infer the year based on the current or upcoming application cycle (reference year: {current_year}). "
+        "For example, fall deadlines like November/December are in the current or upcoming cycle, and January/February/March deadlines are in the corresponding spring semester cycle.\n"
+        "- If a deadline is explicitly rolling with no cutoff date, use 'Rolling'.\n"
+        "- Deduplicate identical rounds and select the most accurate date if conflicting dates appear.\n\n"
+        "Output format:\n"
+        "Return ONLY a valid JSON array of objects, for example:\n"
+        "[\n"
+        '  {"deadline_type": "ED", "date": "2025-11-01"},\n'
+        '  {"deadline_type": "RD", "date": "2026-01-05"},\n'
+        '  {"deadline_type": "FD", "date": "2026-02-15"}\n'
+        "]\n"
+        "Do not include markdown fences, comments, or any extra text."
+    )
+
+    user_prompt = f"Raw deadline notes:\n{combined_notes}\n\nParse into a JSON array of deadline objects:"
+
+    try:
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model="openai/gpt-oss-20b",
+            temperature=0.0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        clean_content = re.sub(
+            r"^```(?:json)?|```$", "", content, flags=re.MULTILINE
+        ).strip()
+        parsed = json.loads(clean_content)
+        standardized = standardize_deadline_items(parsed, current_year)
+        if standardized:
+            return standardized
+    except Exception as e:
+        print(f"Error parsing deadlines with LLM: {e}")
+
+    # Fallback if LLM call fails or returns empty
+    fallback = []
+    for txt in deadline_texts:
+        for item in str(txt).split(","):
+            val = item.strip()
+            if val:
+                fallback.append(
+                    {
+                        "deadline_type": "OTHER",
+                        "date": normalize_date_str(val, current_year),
+                    }
+                )
+    return fallback
 
 
 # save_note to cache notes after extraction, save_results() returns json valid output from the saved notes
@@ -729,6 +962,7 @@ def save_results():
         "fields",
         "english_proficency_required",
         "required_documents",
+        "accepted_english_proficiency_tests",
     }
     funding_keys = {
         "funding_tuition",
@@ -740,16 +974,15 @@ def save_results():
     result = {
         "organization": None,
         "eligible_countries": [],
-        "notable_accolades": None,
-        "education_levels": {},
+        "notable_accolades": [],
+        "education_levels": [],
         "fields": [],
         "minimum_gpa": None,
         "max_age": None,
-        "english_proficency_required": [],
         "deadline": [],
         "required_documents": [],
         "application_url": None,
-        "application process": None,
+        "application_process": None,
         "number_of_recommendation_letters_required": None,
         "essays_required": None,
         "financial_aid_policy": None,
@@ -759,20 +992,26 @@ def save_results():
         "country_located": None,
         "campus_locations": [],
         "university_type": None,
-        "international_student_population": None,
         "minimum_standardized_test_scores": [],
         "school_year_starting_date": None,
         "funding_type": None,
         "annual_tuitioin_coveratge_cost": None,
-        "age_restrictions": None,
         "recommendation_letter_types": None,
         "program_delivery_mode": None,
+        "need_blind": None,
+        "sat_required": None,
+        "english_proficiency_required": None,
+        "accepted_english_proficiency_tests": [],
     }
 
+    deadline_notes = []
     for note in notes:
         field = note["field"]
         value = note["value"]
-        if field in list_fields or isinstance(result.get(field), list):
+        if field == "deadline":
+            deadline_notes.append(str(value))
+            continue
+        elif field in list_fields or isinstance(result.get(field), list):
             if result.get(field) is None:
                 result[field] = []
             items = [v.strip() for v in str(value).split(",") if v.strip()]
@@ -786,6 +1025,11 @@ def save_results():
             result["funding"][sub_key] = value
         else:
             result[field] = value  # scalar field: last note wins
+
+    if deadline_notes:
+        result["deadline"] = parse_deadlines_with_llm(deadline_notes)
+    else:
+        result["deadline"] = []
 
     output_path = "scholarship_result.json"
     with open(output_path, "w", encoding="utf-8") as f:
@@ -878,9 +1122,6 @@ def short_path(url):
 
 
 # ---- candidate filtering & LLM selection ----
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY_ICLONE"),
-)
 
 
 def filter_candidates_for_llm(candidates):
@@ -963,7 +1204,7 @@ def ask_llm_for_relevant_controls(candidates):
             valid_ids = {c["id"] for c in candidates}
             selected = [m for m in matches if m in valid_ids]
             return list(dict.fromkeys(selected))
-        except Exception:
+        except Exception as e:
             pass
 
     return []
@@ -1034,3 +1275,7 @@ def previous_result():
     with open("scholarship_result.json", "r", encoding="utf-8") as f:
         previous_result = json.load(f)
         return previous_result
+
+
+if __name__ == "__main__":
+    print(get_net_tuition_with_llm("amharist university"))

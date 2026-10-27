@@ -1,58 +1,103 @@
 {
-  "organization": "Duke University",
+  "organization": "Amherst College",
   "eligible_countries": [
-    "United States (eligible: North Carolina",
-    "South Carolina residents only)"
+    "international students",
+    "domestic students",
+    "undocumented",
+    "DACA",
+    "non-citizen permanent residents",
+    "those with fragile citizenship"
   ],
-  "notable_accolades": "16 Nobel laureates affiliated with Duke; 17 NCAA National Championships (Basketball, Golf, Lacrosse, Soccer, Tennis)",
-  "education_levels": "undergraduate, graduate",
+  "notable_accolades": [
+    "Athletics program is the oldest in the country",
+    "81 Division III individual titles and 14 team championships"
+  ],
+  "education_levels": [
+    "undergraduate",
+    "graduate",
+    "professional school"
+  ],
   "fields": [
-    "53 majors",
-    "52 minors",
-    "23 certificates",
-    "and hundreds of graduate and professional programs."
+    "Arts",
+    "Humanities",
+    "Science & Math",
+    "Social Sciences",
+    "Art and the History of Art",
+    "Film and Media Studies",
+    "Music",
+    "Classics",
+    "Anthropology and Sociology",
+    "Physics",
+    "English",
+    "Economics",
+    "European Studies",
+    "Environmental Studies",
+    "Statistics and Data Science"
   ],
   "minimum_gpa": null,
-  "max_age": "No maximum age limit; Duke does not discriminate on the basis of age",
-  "english_proficency_required": [],
+  "max_age": null,
   "deadline": [
-    "Early Decision Deadline: Nov 2; Regular Decision Deadline: Jan 4; Transfer Application Deadline: Mar 15"
+    {
+      "deadline_type": "ED",
+      "date": "2026-11-09"
+    },
+    {
+      "deadline_type": "RD",
+      "date": "2027-01-05"
+    },
+    {
+      "deadline_type": "TR",
+      "date": "2026-11-02"
+    },
+    {
+      "deadline_type": "TR",
+      "date": "2027-03-01"
+    },
+    {
+      "deadline_type": "FD",
+      "date": "2026-11-13"
+    },
+    {
+      "deadline_type": "FD",
+      "date": "2027-01-15"
+    },
+    {
+      "deadline_type": "FD",
+      "date": "2026-11-02"
+    },
+    {
+      "deadline_type": "FD",
+      "date": "2027-03-01"
+    }
   ],
   "required_documents": [
-    "transcripts",
-    "tests",
-    "recommendations",
-    "extracurricular activities",
+    "Secondary school transcript",
+    "Teacher and counselor recommendations",
     "essays",
-    "application fee",
-    "interviews",
-    "supplements"
+    "writing supplement",
+    "standardized test results (optional / if submitted)"
   ],
   "application_url": null,
-  "application process": "First-year applicants may apply via Common Application or QuestBridge Application; Transfer applicants may apply via Duke Transfer Application or Coalition (powered by Scoir); After submission, applicant receives email to access Application Checklist",
-  "number_of_recommendation_letters_required": "3",
+  "application_process": null,
+  "number_of_recommendation_letters_required": null,
   "essays_required": null,
-  "financial_aid_policy": "Full tuition grants for admitted undergraduates from North and South Carolina with family incomes of $150,000 or less; 100% of demonstrated financial need met by Duke",
-  "tuition_waiver_threshold": "$150,000 family income",
-  "accepted_application_platform": [
-    "Common Application",
-    "QuestBridge Application",
-    "Duke Transfer Application",
-    "Coalition (powered by Scoir)"
-  ],
+  "financial_aid_policy": "Our financial aid offers only include grants, scholarships and student employment. Calculated need is met in full for all admitted students, including international and transfer students.",
+  "tuition_waiver_threshold": null,
+  "accepted_application_platform": [],
   "application_fee": null,
   "country_located": "United States",
   "campus_locations": [
-    "Durham",
-    "North Carolina"
+    "New England"
   ],
   "university_type": null,
-  "international_student_population": null,
   "minimum_standardized_test_scores": [],
   "school_year_starting_date": null,
   "funding_type": null,
   "annual_tuitioin_coveratge_cost": null,
-  "age_restrictions": null,
   "recommendation_letter_types": null,
-  "program_delivery_mode": null
+  "program_delivery_mode": null,
+  "need_blind": "true",
+  "sat_required": "false",
+  "english_proficiency_required": null,
+  "accepted_english_proficiency_tests": []
 }

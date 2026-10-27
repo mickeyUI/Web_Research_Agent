@@ -2,10 +2,11 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from dotenv import load_dotenv
+from google import genai
+from google.genai import errors
 from groq import APIConnectionError, BadRequestError, Groq, RateLimitError
 from playwright.sync_api import sync_playwright
 
@@ -40,7 +41,7 @@ if nxt:
     target_field = nxt
 # ------------------------------------------------------------ config ----
 # Edit these lists/values freely; none of the logic below needs to change.
-START_URL = "https://www.duke.edu/admissions/"
+START_URL = "https://www.amherst.edu/"
 # Site's base domain, computed ONCE from the start URL ("www." removed).
 # It must stay fixed: if it were read from the current page, visiting a subdomain would shrink it.
 
@@ -65,7 +66,7 @@ DEBUG_LINKS = (
 
 LABEL_MAX = 60  # characters of label shown to the model
 CTX_MAX = 60  # characters of context shown (only for generic labels)
-WEBPAGE_BODYTEXT_MAX = 9000
+WEBPAGE_BODYTEXT_MAX = 6000
 
 link_registry = {}  # id -> real URL
 url_to_id = {}  # real URL -> id, so the same URL keeps the same id across pages
@@ -96,8 +97,32 @@ button_registry = {}  # btn_id -> {"label": str, "index": int}  populated by sca
 
 # =======================================================================
 client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY_ICLONE"),
+    api_key=os.environ.get("GROQ_API_KEY2") or os.environ.get("GROQ_API_KEY"),
 )
+
+genai_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+
+def _to_gemini_tools(openai_tools: list) -> list:
+    """Convert OpenAI-format tools to Antigravity Gemini SDK flat format.
+
+    OpenAI:  [{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}]
+    Gemini:  [{"type": "function", "name": ..., "description": ..., "parameters": ...}]
+    """
+    result = []
+    for tool in openai_tools:
+        if isinstance(tool, dict) and tool.get("type") == "function":
+            fn = tool["function"]
+            result.append(
+                {
+                    "type": "function",
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {}),
+                }
+            )
+    return result
+
 
 # =====================================================================
 # save_note tool: the model records a fact it found, with proof.
@@ -195,6 +220,13 @@ def get_links():
         target = clean_url(
             urljoin(page.url, href or "")
         )  # resolve "/apply" into a full URL
+
+        # Capture direct Common App links discovered on the university site
+        if "commonapp.org" in target.lower():
+            for t in target_manager:
+                if t["target"] == "application_url" and t["status"] != "found":
+                    save_note("application_url", target, page)
+                    break
         reason = is_junk("", target)  # URL-only checks (label not read yet)
         if not reason and target == here:
             reason = "same page"
@@ -723,7 +755,7 @@ Prioritize finding reliable information about this field, but do not limit extra
 ## Instructions
 1. Examine the page content for every field in the FIELDS TO FIND list below.
 2. Identify facts that are explicitly supported by the page.
-3. Do NOT re-save fields listed under ALREADY RECORDED — skip them unless you have a material correction.
+3. Do NOT re-save fields listed under ALREADY RECORDED — skip them unless you have a material correction, EXCEPT for `deadline` and list-based fields. For `deadline`, ALWAYS save every newly found deadline (e.g. Early Decision, Early Action, Regular Decision, Financial Aid) with its specific decision round and date, even if another deadline was already recorded.
 4. Use `save_note` to record each new or materially improved finding according to the tool's actual schema.
 5. Preserve relevant conditions, dates, amounts, units, and exceptions.
 6. Do not overwrite valid existing information with empty, weaker, or unsupported findings.
@@ -739,13 +771,7 @@ Prioritize finding reliable information about this field, but do not limit extra
 Page content:
 {text[:WEBPAGE_BODYTEXT_MAX]}
 """
-    extractor_message: list = [
-        {"role": "system", "content": EXTRACTOR_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": extractor_user_prompt,
-        },
-    ]
+    previous_id = None
     while True:
         count += 1
         print(
@@ -754,120 +780,74 @@ Page content:
         if count == 10:
             print("interrupted at iteration limit (extractor) ---------")
             break
-        chat_completion = None
+        interaction = None
         for attempt in range(1, 4):  # up to 3 tries
             try:
                 print(f"extractor model computing .... (attempt {attempt}/3)")
-                chat_completion = client.chat.completions.create(
-                    messages=extractor_message,
-                    model="openai/gpt-oss-20b",
-                    tools=ext_tools,
+                interaction = genai_client.interactions.create(
+                    model="gemini-3.5-flash-lite",
+                    system_instruction=EXTRACTOR_SYSTEM_PROMPT,
+                    input=extractor_user_prompt,
+                    previous_interaction_id=previous_id,
+                    tools=_to_gemini_tools(ext_tools),
                 )
                 break  # success, stop retrying
-            except RateLimitError as e:
-                print(f"Rate limit hit: {e}")
-                if attempt < 3:
-                    print("Retrying in 30 seconds...")
-                    time.sleep(30)
-                else:
-                    print("Rate limit: all 3 attempts failed, safely exiting.")
-            except APIConnectionError as e:
-                print(f"Connection error: {e}")
+            except errors.ClientError as e:
+                if e.code == 429:
+                    print(f"Rate limit hit: {e}")
+                    if attempt < 3:
+                        print("Retrying in 30 seconds...")
+                        time.sleep(30)
+                    else:
+                        print("Rate limit: all 3 attempts failed, safely exiting.")
+                elif e.code == 400:
+                    print(f"tool call glitch, retrying: {e}")
+                    time.sleep(3)
+                    continue  # try the same request again
+            except errors.ServerError as e:
+                print(f"Google servers are having issues [{e.code}]: {e}")
                 if attempt < 3:
                     print("Retrying connection in 10 seconds...")
                     time.sleep(10)
                 else:
                     print("Connection error: all 3 attempts failed, safely exiting.")
                     break
-            except BadRequestError as e:
-                if error_code(e) == "tool_use_failed" or "tool_use_failed" in str(e):
-                    extractor_message.append(
-                        {
-                            "role": "user",
-                            "content": "your last tool call used an invalid tool name or parameters; use only the exact names and parameter rules you were given.",
-                        }
-                    )
-                    print(f"tool call glitch, retrying: {e}")
-                    time.sleep(3)
-                    continue  # try the same request again
-                print(
-                    f"bad request (not retryable): {e}"
-                )  # any other 400 is a real bug in your request
-                break
             except Exception as e:
-                # 413 = request too large.
-                if "413" in str(e):
-                    print(f"Request too large: {e}")
-                    if attempt < 3:
-                        time.sleep(5)
-                    continue
-                print(f"unexpected extractor model error: {e}")
-                extractor_message.append(
-                    {"role": "user", "content": f"An error occurred: {e}"}
-                )
-                continue
-        if chat_completion is None:
+                print(f"Unexpected extractor error: {e}")
+                if attempt < 2:
+                    time.sleep(5)
+                break
+        if interaction is None:
             break
-        usage = chat_completion.usage.prompt_tokens
-        try:
-            reasoning = chat_completion.choices[0].message.reasoning
-            if reasoning:
-                print(f"Reasoning: \n{reasoning}\n")
-        except Exception as e:
-            print(f"couldn't get reasoning: error -> {e}")
-        print(f"done, prompt_tokens used: {usage}")
-        response = chat_completion.choices[0].message
-        extractor_message.append(response)
-        if response.tool_calls:
-            for tool_call in response.tool_calls:
-                function_name = tool_call.function.name.split("<|")[
-                    0
-                ].strip()  # strip leaked model tokens
-                tool_names[tool_call.id] = function_name
-                args = tool_call.function.arguments
-                arguments = json.loads(args) if args else ""
-                print(f"{function_name}({arguments}) called")
-                function_response = runFunction(
-                    function_name,
-                    arguments,
-                )
-                extractor_message.append(
+        # usage = interaction.usage.tool_use_tokens_by_modality
+        # print(f"token used: {usage}")
+        function_results = []
+        text_response = None
+        for steps in interaction.steps:  # type: ignore
+            if steps.type == "thought":
+                print(f"thought process: \n {steps.summary}")
+            elif steps.type == "function_call":
+                result = runFunction(steps.name, steps.arguments)
+                function_results.append(
                     {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": str(function_response),
+                        "type": "function_result",
+                        "name": steps.name,
+                        "call_id": steps.id,
+                        "result": str(result),
                     }
                 )
-        else:
-            print(f"extractor response: \n{response.content}")
-            try:
-                now = datetime.now()
-                context_report = f"""
-    report---{now}
-    {extractor_message}
-    
-    saved notes -----
-    {notes}
-"""
-                with open("extractor_message.txt", "a", encoding="utf-8") as f:
-                    f.write(str(context_report))
-            except Exception as e:
-                print(f"error logging extractor report: {e}")
-            return (response.content or "") + btn_summary
-
-    try:
-        now = datetime.now()
-        context_report = f"""
-    report---{now}
-    {extractor_message}
-    
-    saved notes -----
-    {notes}
-"""
-        with open("extractor_message.txt", "a", encoding="utf-8") as f:
-            f.write(str(context_report))
-    except Exception as e:
-        print(f"error logging extractor report: {e}")
+            elif steps.type == "model_output":
+                text_response = "".join(
+                    getattr(c, "text", "")
+                    for c in (steps.content or [])
+                    if getattr(c, "type", "") == "text" or hasattr(c, "text")
+                )
+        if not function_results:
+            if text_response:
+                print(f"extractor response: \n{text_response}")
+            break
+        extractor_user_prompt = function_results
+        previous_id = interaction.id
 
     return f"Extraction finished on {page.url}. Total notes: {len(notes)}" + btn_summary
 
@@ -968,8 +948,11 @@ Do not restrict extraction to the active navigation target. The target tells you
   accreditation. Generic marketing phrases like "world-class institution" or "leading research university" do NOT qualify.
 - `education_levels`: classify as "undergraduate", "graduate", "doctoral", etc.
   Do not create separate notes unless both undergraduate and graduate are explicitly confirmed on the same page.
-- `need_blind`: only record if the page explicitly uses the term "need-blind" or states that financial need is not considered
-  in the admissions decision. Do not infer this from a general financial aid policy.
+- Boolean fields (`need_blind`, `sat_required`, `english_proficiency_required`):
+  * `need_blind`: Record 'true' if the institution is need-blind (financial need is not considered in admissions). Record 'false' if it is need-aware or considers financial need. Do not record if financial need policy is not mentioned.
+  * `sat_required`: Record 'true' if SAT/ACT scores are mandatory. Record 'false' if the school is test-optional, test-free, test-blind, or does not require SAT scores. Do not record if testing policy is not mentioned.
+  * `english_proficiency_required`: Record 'true' if proof of English proficiency (TOEFL, IELTS, DET) is required for admission (e.g. for international students or non-native speakers). Record 'false' if waived, optional, or not required. Do not record if English proficiency testing is not mentioned.
+- `deadline`: Record all specific admission and financial aid deadlines (Early Decision, Early Action, Regular Decision, Financial Aid, etc.) with their respective dates and decision rounds. Always record any additional or newly discovered deadlines even if one deadline was already recorded previously.
 
 5. Finish correctly:
 After inspecting the page and recording all supported findings with `save_note`, reply with 'done'."""
@@ -1031,7 +1014,7 @@ def start_researching():
                 try:
                     print(f"nav model computing .... (attempt {attempt}/3)")
                     chat_completion = client.chat.completions.create(
-                        messages=message, model="openai/gpt-oss-20b", tools=nav_tools
+                        messages=message, model="openai/gpt-oss-120b", tools=nav_tools
                     )
                     break  # success, stop retrying
                 except RateLimitError as e:
@@ -1144,7 +1127,7 @@ def start_researching():
                     print("Navigator called save_results. Ending navigation.")
                     break
             else:
-                print(f"final response: \n{response.content}")
+                print(f"final LLM response: \n{response.content}")
                 try:
                     raw = (response.content or "").strip()
                     json_start = raw.find("{")
@@ -1174,6 +1157,38 @@ def start_researching():
                         "content": f"Please continue researching target '{target_field['target']}' using your tools: `scanAndExtract`, `get_links`, or `openPage`.",
                     }
                 )
+
+        # Fallback: If missing fields remain after primary site crawl, enrich via Common App
+        missing_fields = get_missing_fields()
+        if missing_fields:
+            print(f"\n{'=' * 65}")
+            print(
+                f"[Fallback] Primary site crawl completed, but {len(missing_fields)} field(s) are still missing:"
+            )
+            for mf in missing_fields:
+                print(f"  - {mf['target']}")
+            print("Triggering Common App Fallback Engine...")
+            print(f"{'=' * 65}\n")
+
+            # Determine college name for search
+            college_name = None
+            for note in notes:
+                if note.get("field") == "organization" and note.get("value"):
+                    college_name = note["value"]
+                    break
+            if not college_name:
+                parts = (
+                    urlsplit(START_URL).netloc.lower().removeprefix("www.").split(".")
+                )
+                college_name = parts[0].replace("-", " ").title()
+
+            try:
+                from commonapp_fallback import run_commonapp_fallback
+
+                run_commonapp_fallback(college_name, playwright_instance=p)
+            except Exception as e:
+                print(f"[Fallback] Common App fallback encountered error: {e}")
+
         nav_walkthrough_record(message, page_history, visited_links)
         # Use the model's direct JSON output if available; otherwise assemble from saved notes.
         if model_result is not None:
@@ -1195,4 +1210,15 @@ def start_researching():
 
 
 if __name__ == "__main__":
-    start_researching()
+    # with sync_playwright() as p:
+    #     browser = p.chromium.launch(headless=True)
+    #     page = browser.new_page()
+    #     # Navigate to a URL (waits for the page to load)
+    #     page.goto(START_URL, timeout=60000, wait_until="domcontentloaded")
+    #     print(scanAndExtract())
+    print("hi")
+    interaction = genai_client.interactions.create(
+        model="gemini-3.8-flash",
+        input="latest English proficiency requirements for Duke University undergraduate admissions for 2025/2026",
+    )
+    print(interaction.output_text)

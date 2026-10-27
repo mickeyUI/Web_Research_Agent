@@ -1,9 +1,18 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from helper_functions import previous_result
 from playwright_tools import start_researching
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/get_results")
@@ -12,9 +21,8 @@ def get_research_result():
         research_result = start_researching()
         return research_result
     except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"couldn't get research results. error: {e}"
-        )
+        print(f"{type(e).__name__}: {e!r}")
+        raise
 
 
 @app.get("/previous_results")
