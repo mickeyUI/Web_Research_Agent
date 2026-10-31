@@ -7,29 +7,38 @@ from urllib.parse import urljoin, urlsplit
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors
-from groq import APIConnectionError, BadRequestError, Groq, RateLimitError
+from groq import APIConnectionError, BadRequestError, RateLimitError
 from playwright.sync_api import sync_playwright
 
+from commonapp_fallback import run_commonapp_fallback
 from helper_functions import (
+    HUB_MISSIONS,
     ask_llm_for_relevant_controls,
     call_user,
     clean_text,
     clean_url,
     ext_tools,
     fields,
+    get_hub_missing_fields,
     get_missing_fields,
     get_notes_summary,
-    interrupt_and_change,
+    groq_manager,
+    is_hub_completed,
     is_junk,
     load_previous_results,
     nav_tools,
     nav_walkthrough_record,
     next_target_field,
     notes,
+    reset_research_session,
     save_note,
     save_results,
     short_path,
+    target_manager,
     targets_unchecked,
+)
+from helper_functions import (
+    set_target_url as set_helper_target_url,
 )
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -41,7 +50,16 @@ if nxt:
     target_field = nxt
 # ------------------------------------------------------------ config ----
 # Edit these lists/values freely; none of the logic below needs to change.
-START_URL = "https://www.amherst.edu/"
+START_URL = "https://www.gatech.edu/"
+
+
+def set_target_url(url: str):
+    """Set global target URL in playwright_tools and helper_functions."""
+    global START_URL
+    START_URL = url
+    set_helper_target_url(url)
+
+
 # Site's base domain, computed ONCE from the start URL ("www." removed).
 # It must stay fixed: if it were read from the current page, visiting a subdomain would shrink it.
 
@@ -90,17 +108,46 @@ link_list_info = {}  # tool_call_id -> {"path": page path, "count": number of li
 visited_links = []
 page_history = []
 page = None
+current_hub = None
 button_registry = {}  # btn_id -> {"label": str, "index": int}  populated by scanAndExtract's button detector
 
 # =====================================================================
 
 
 # =======================================================================
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY2") or os.environ.get("GROQ_API_KEY"),
-)
+client = groq_manager.get_client()
 
-genai_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+def prune_older_get_links(messages: list) -> list:
+    """
+    Scans conversation history and keeps only the MOST RECENT get_links tool result in full.
+    Replaces older get_links tool outputs with a short placeholder so the context window
+    and daily token usage do not snowball across cycles.
+    """
+    get_links_indices = []
+    for idx, msg in enumerate(messages):
+        if isinstance(msg, dict) and msg.get("role") == "tool":
+            call_id = msg.get("tool_call_id", "")
+            fn_name = tool_names.get(call_id, "")
+            content = str(msg.get("content", ""))
+            if fn_name == "get_links" or content.startswith("[get_links]"):
+                get_links_indices.append(idx)
+
+    if len(get_links_indices) > 1:
+        for idx in get_links_indices[:-1]:
+            msg = messages[idx]
+            call_id = msg.get("tool_call_id", "")
+            info = link_list_info.get(call_id, {})
+            path = info.get("path", "previous page")
+            count = info.get("count", "multiple")
+            stub = f"(Older link list from {path}: {count} links omitted to conserve tokens.)"
+            if not str(msg.get("content", "")).startswith("(Older link list"):
+                msg["content"] = stub
+
+    return messages
+
+
+genai_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY_DAGNE"))
 
 
 def _to_gemini_tools(openai_tools: list) -> list:
@@ -140,13 +187,11 @@ def clickButton(btn_id: int):
     if btn_id not in button_registry:
         return f"error: btn_id {btn_id} not found. Call scanAndExtract first to get the button list."
     entry = button_registry[btn_id]
-    label = entry["label"]
-    index = entry["index"]
+    label = entry.get("label", f"button {btn_id}")
     try:
-        # Re-select by the same query used during detection, using nth(index)
-        btn = page.locator(
-            "button[aria-controls], button[aria-expanded], [role='tab']"
-        ).nth(index)
+        btn = page.locator(f"[data-btn-id='{btn_id}']").first
+        if btn.count() == 0 or not btn.is_visible():
+            return f"error: button '{label}' is no longer visible on the page."
         btn.scroll_into_view_if_needed()
         btn.click()
         page.wait_for_timeout(700)  # let JS update the DOM
@@ -176,9 +221,9 @@ def runFunction(
         if function_name == "save_note":
             return save_note(page=current_page, **args)
         elif function_name == "openPage":
-            if "link_id" in args:
-                return openPage(link_id=args["link_id"], page=current_page)
-            return openPage(page=current_page, **args)
+            link_id = args.get("link_id")
+            url = args.get("url")
+            return openPage(link_id=link_id, url=url, page=current_page)
         elif function_name == "clickButton":
             return clickButton(btn_id=args["btn_id"])
         elif args:
@@ -199,15 +244,129 @@ def register(url):
     return url_to_id[url]
 
 
+HUB_NAV_KEYWORDS = {
+    "admissions_hub": [
+        "international",
+        "deadline",
+        "deadlines",
+        "first-year",
+        "freshman",
+        "apply",
+        "requirement",
+        "requirements",
+        "testing",
+        "test",
+        "sat",
+        "act",
+        "toefl",
+        "ielts",
+        "duolingo",
+        "gpa",
+        "fee",
+        "fees",
+        "document",
+        "documents",
+        "recommendation",
+        "review",
+        "admissions",
+        "undergraduate",
+        "decision",
+        "dates",
+        "portal",
+        "checklist",
+        "criteria",
+    ],
+    "financial_aid_hub": [
+        "financial-aid",
+        "tuition",
+        "cost",
+        "costs",
+        "scholarship",
+        "scholarships",
+        "aid",
+        "grant",
+        "grants",
+        "waiver",
+        "waivers",
+        "affordability",
+        "need-blind",
+        "finaid",
+        "attendance",
+        "estimate",
+        "estimator",
+        "calculator",
+        "net-price",
+        "funding",
+    ],
+    "institutional_hub": [
+        "about",
+        "academics",
+        "majors",
+        "degrees",
+        "programs",
+        "locations",
+        "campus",
+        "profile",
+        "facts",
+        "rankings",
+        "overview",
+        "colleges",
+        "schools",
+    ],
+}
+
+
+def score_candidate_link(
+    label: str, target: str, region: str, hub_id: str, visited: list
+) -> int:
+    """Computes relevance score for a candidate link based on active hub mission targets."""
+    score = 0
+    # Region preference: content links are higher value than nav or footer
+    if region == "content":
+        score += 5
+    elif region in ("header", "footer", "nav"):
+        score -= 2
+
+    # Heavily penalize already visited URLs to avoid looping
+    if target in visited:
+        score -= 30
+
+    text_corpus = f"{label} {target}".lower()
+    keywords = HUB_NAV_KEYWORDS.get(hub_id, [])
+    for kw in keywords:
+        if kw in text_corpus:
+            score += 10
+            # Extra boost for high-priority targets
+            if kw in (
+                "international",
+                "deadline",
+                "deadlines",
+                "tuition",
+                "cost",
+                "scholarship",
+                "requirements",
+            ):
+                score += 8
+
+    return score
+
+
 # --------------------------------------------------------- get_links ----
 def get_links():
+    global current_hub, visited_links
     # Links only. Buttons are dropped: they have no URL, so openPage couldn't open them.
     els = page.locator("a[href]:not(svg a)")
     here = clean_url(page.url)  # current page, to skip links that point to itself
     seen = set()  # URLs already accepted (duplicate check)
-    lines = []
+    candidates = []
     dropped = []  # (reason, label, url): only used for the debug printout
     total = els.count()
+
+    active_hub_id = (
+        current_hub.get("hub_id", "admissions_hub")
+        if isinstance(current_hub, dict)
+        else "admissions_hub"
+    )
 
     for i in range(total):
         el = els.nth(i)
@@ -265,18 +424,36 @@ def get_links():
             if parent.count():
                 ctx = " ".join(parent.inner_text().replace(label, "").split())[:CTX_MAX]
 
-        # Build one short line:  id | label | /path [| region] [| ctx: ...]
-        parts = [str(register(target)), label[:LABEL_MAX], short_path(target)]
-        if region != "content":
-            parts.append(region)
-        if ctx:
-            parts.append(f"ctx: {ctx}")
-        lines.append(" | ".join(parts))
+        score = score_candidate_link(
+            label, target, region, active_hub_id, visited_links
+        )
+        candidates.append(
+            {
+                "id": register(target),
+                "label": label[:LABEL_MAX],
+                "path": short_path(target),
+                "region": region,
+                "ctx": ctx,
+                "score": score,
+            }
+        )
+
+    # Sort candidates by relevance score descending so the most pertinent admissions/aid links come first
+    candidates.sort(key=lambda c: c["score"], reverse=True)
 
     # Cap to 30 links max so the token budget isn't blown on a single tool result
     MAX_LINKS = 30
-    if len(lines) > MAX_LINKS:
-        lines = lines[:MAX_LINKS]
+    if len(candidates) > MAX_LINKS:
+        candidates = candidates[:MAX_LINKS]
+
+    lines = []
+    for c in candidates:
+        parts = [str(c["id"]), c["label"], c["path"]]
+        if c["region"] != "content":
+            parts.append(c["region"])
+        if c["ctx"]:
+            parts.append(f"ctx: {c['ctx']}")
+        lines.append(" | ".join(parts))
 
     result = (
         "id | label | path\n" + "\n".join(lines)
@@ -286,7 +463,7 @@ def get_links():
 
     if DEBUG_LINKS:  # use this output to tune the lists above
         print(
-            f"[get_links] {total} candidates -> {len(lines)} kept, {len(dropped)} dropped, "
+            f"[get_links] {total} candidates -> {len(lines)} kept (scored & prioritized), {len(dropped)} dropped, "
             f"{len(result)} characters sent to the model"
         )
         for reason, label, url in dropped[
@@ -606,15 +783,37 @@ def reveal_relevant_hidden_content(page, max_rounds=2):
 
 
 # ==========================================================================================
-def openPage(link_id, page=None):
+def openPage(link_id=None, url=None, page=None):
     current_page = page if page is not None else globals().get("page")
-    url = link_registry.get(int(link_id))  # id -> real URL
-    if not url:
-        return "error: unknown link id. Call get_links to see valid ids."
-    print("went to", url)
+
+    target_url = None
+    if url:
+        target_url = str(url).strip()
+    elif link_id is not None:
+        val_str = str(link_id).strip()
+        if val_str.isdigit() or (val_str.startswith("-") and val_str[1:].isdigit()):
+            target_url = link_registry.get(int(val_str))
+        elif val_str.startswith("http://") or val_str.startswith("https://") or val_str.startswith("/"):
+            target_url = val_str
+        elif "." in val_str and " " not in val_str:
+            target_url = f"https://{val_str}"
+        else:
+            try:
+                target_url = link_registry.get(int(link_id))
+            except (ValueError, TypeError):
+                target_url = None
+
+    if not target_url:
+        return f"error: invalid link id or URL '{link_id or url}'. Call get_links to see valid ids, or provide a full URL."
+
+    if target_url.startswith("/"):
+        base = current_page.url if current_page else START_URL
+        target_url = urljoin(base or START_URL, target_url)
+
+    print("went to", target_url)
     try:
-        visited_links.append(url)
-        current_page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        visited_links.append(target_url)
+        current_page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
         print("[openPage] Discovering and expanding relevant hidden content...")
         try:
             reveal_relevant_hidden_content(current_page, 2)
@@ -622,8 +821,8 @@ def openPage(link_id, page=None):
             print(f"Hidden content expansion error in openPage: {e}")
     except Exception as e:
         print(f"openPage error: {e}")
-        return f"error: {e}"
-    return f"navigated to link: {url}"
+        return f"error navigating to '{target_url}': {e}. Try another link from get_links or provide a different URL."
+    return f"navigated to link: {target_url}"
 
 
 # =====================================================================
@@ -672,6 +871,8 @@ SCAN_JS = r"""
 
 # --------------------------------------------------------- scanAndExtract ----
 def scanAndExtract():
+    global current_hub
+    notes_before = len(notes)
     try:
         raw = page.evaluate(
             SCAN_JS,
@@ -698,33 +899,51 @@ def scanAndExtract():
     btn_summary = ""
     try:
         detected = page.evaluate("""() => {
+            // Clear any previously assigned data-btn-id attributes
+            document.querySelectorAll('[data-btn-id]').forEach(el => el.removeAttribute('data-btn-id'));
+
             const selector = "button[aria-controls], button[aria-expanded], [role='tab']";
-            const els = [...document.querySelectorAll(selector)];
-            return els.map((el, i) => ({
-                index: i,
-                label: (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 80),
-                expanded: el.getAttribute('aria-expanded'),
-                hidden: el.offsetParent === null
-            }));
+            const allEls = [...document.querySelectorAll(selector)];
+
+            // Strictly exclude buttons inside header, nav, footer, banner, navigation landmarks
+            const contentEls = allEls.filter(el => {
+                const inNav = el.closest("header, nav, footer, [role='navigation'], [role='banner'], [role='contentinfo']");
+                return !inNav;
+            });
+
+            let validId = 0;
+            const items = [];
+            for (const el of contentEls) {
+                const hidden = (el.offsetParent === null) || el.hidden || (window.getComputedStyle(el).display === 'none');
+                if (hidden) continue;
+
+                const expanded = el.getAttribute('aria-expanded');
+                if (expanded === 'true') continue; // already open
+
+                const label = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 80);
+                if (!label) continue; // skip unlabelled / icon buttons
+
+                el.setAttribute('data-btn-id', String(validId));
+                items.push({
+                    btn_id: validId,
+                    label: label
+                });
+                validId++;
+            }
+            return items;
         }""")
-        btn_id = 0
         lines = []
         for item in detected:
-            # Only surface visible buttons that are collapsed (expanded=false or null)
-            if item["hidden"]:
-                continue
-            if item["expanded"] == "true":
-                continue  # already open
-            label = item["label"] or f"(unlabelled button {item['index']})"
-            button_registry[btn_id] = {"label": label, "index": item["index"]}
-            lines.append(f"  [{btn_id}] {label}")
-            btn_id += 1
+            b_id = item["btn_id"]
+            label = item["label"]
+            button_registry[b_id] = {"label": label}
+            lines.append(f"  [{b_id}] {label}")
         if lines:
             btn_summary = (
                 "\n\nInteractive buttons found on this page (call clickButton to reveal hidden content):\n"
                 + "\n".join(lines)
             )
-            print(f"  detected {len(lines)} interactive button(s)")
+            print(f"  detected {len(lines)} interactive content button(s)")
     except Exception as e:
         print(f"  button detection failed: {e}")
     # -----------------------------------------------------------------
@@ -746,11 +965,10 @@ def scanAndExtract():
     )
 
     extractor_user_prompt = f"""Inspect the following webpage and save all newly discovered scholarship information using `save_note`.
-## Active target
-Field name: {target_field["target"]}
-Field description: {target_field["discription"]}
+## Active Research Mission
+{f"Hub: {current_hub['title']} ? {current_hub['discription']}" if current_hub else f"Field: {target_field.get('target', 'General')}" if isinstance(target_field, dict) else "General Admissions"}
 
-Prioritize finding reliable information about this field, but do not limit extraction to it.
+Prioritize finding reliable information for this mission, but do not limit extraction to it. Record any supported fields you discover.
 
 ## Instructions
 1. Examine the page content for every field in the FIELDS TO FIND list below.
@@ -777,7 +995,7 @@ Page content:
         print(
             f"----------------------cycle {count} (extractor)--------------------------------\n"
         )
-        if count == 10:
+        if count == 15:
             print("interrupted at iteration limit (extractor) ---------")
             break
         interaction = None
@@ -849,7 +1067,42 @@ Page content:
         extractor_user_prompt = function_results
         previous_id = interaction.id
 
-    return f"Extraction finished on {page.url}. Total notes: {len(notes)}" + btn_summary
+    new_notes = notes[notes_before:]
+    if new_notes:
+        new_lines = "\n".join(
+            f"  - {n['field']}: {str(n['value'])[:80]}" for n in new_notes
+        )
+        yield_msg = (
+            f"Newly saved on this page ({len(new_notes)} field(s)):\n{new_lines}"
+        )
+    else:
+        yield_msg = (
+            "Newly saved on this page: (None - no new target fields found on this page)"
+        )
+
+    if current_hub:
+        missing_in_hub = get_hub_missing_fields(current_hub)
+        hub_status = (
+            f"Still missing in '{current_hub['title']}' ({len(missing_in_hub)}):\n"
+            f"  {', '.join(missing_in_hub) or '(All fields in this hub found!)'}"
+        )
+    else:
+        all_missing = [t["target"] for t in get_missing_fields()]
+        hub_status = (
+            f"Still missing across site ({len(all_missing)}):\n"
+            f"  {', '.join(all_missing) or '(All fields found!)'}"
+        )
+
+    if button_registry:
+        guidance = (
+            "Next Action: If any interactive accordion/tab buttons below are specifically relevant to the missing fields, "
+            "call clickButton; otherwise call get_links and pick links leading to the missing fields above."
+        )
+    else:
+        guidance = "Next Action: Call get_links and pick links that lead to the remaining missing fields above."
+
+    url_path = short_path(page.url) if page and hasattr(page, "url") else "page"
+    return f"[Extraction Summary on {url_path}]\n{yield_msg}\n\n{hub_status}\n\n{guidance}{btn_summary}"
 
 
 def error_code(e):
@@ -864,53 +1117,63 @@ def error_code(e):
     return None
 
 
-NAV_SYSTEM_PROMPT = """You are the navigation agent for a scholarship research system. Your job is to decide which links to follow to find information about the current target_field.
+NAV_SYSTEM_PROMPT = """You are the navigation agent for a university admissions and scholarship research system.
+Your job is to explore the university website to accomplish the active Research Hub Mission.
 
-Your workflow — complete all steps IN A SINGLE TURN before waiting for the next message:
-1. Call `scanAndExtract` on the current page to extract all scholarship information present.
-2. If the result lists "Interactive buttons found on this page", call `clickButton(btn_id)` for each button whose label is relevant to the current target Then call `scanAndExtract` again to read the newly revealed content.
-3. Call `get_links` to view candidate links on the current page.
-4. Pick the most promising link for the current `target_field` and call `openPage` with its `link_id` — all in the same turn.
+Your workflow:
+1. Call `scanAndExtract` on the current page to extract all admissions and financial information present.
+2. If the result lists "Interactive buttons found on this page", call `clickButton(btn_id)` ONLY if the button label is specifically relevant to the missing fields (e.g. FAQ or Requirements tabs). Otherwise, proceed directly to get_links.
+3. Call `get_links` to view prioritized candidate links on the current page.
+4. Pick the most promising link for the active Research Hub Mission and call `openPage` with its `link_id` (or pass a direct URL string to `openPage` if you know the exact URL).
 
 Additional rules:
-- Consider indirect paths: relevant information for a target may be located under broader pages like admissions, costs, funding, financial aid, or applicant requirements.
-- Skip irrelevant links (e.g., athletics, news, alumni magazine, social media, login).
-- Skip pages already listed under "Already visited URLs" — jump to the most relevant unvisited link instead.
-- Fields listed under "Already found" are complete — do not navigate solely for them.
-- When all target fields have been investigated, call `save_results`.
+- Stay focused on the active Research Hub Mission (e.g. explore the admissions section thoroughly before moving to financial aid).
+- Consider hierarchical paths: admissions requirements, testing, and deadlines are typically under /admission, /apply, or /international.
+- Skip irrelevant links (e.g. athletics, news, alumni magazine, social media, general student logins).
+- Skip pages already listed under "Recently Visited URLs" — jump to the most relevant unvisited link instead.
+- When all fields across the hub or site have been investigated, call `save_results`.
 
 Use only the provided tools: `scanAndExtract`, `clickButton`, `get_links`, `openPage`, `save_results`, `call_user`."""
 
 
-def build_nav_user_prompt(active_target, visited):
-    """Build the Navigator's opening user message with live context.
-
-    active_target: dict with 'target' and 'discription' keys (current target_field)
-    visited: list of already-visited URL strings (visited_links)
-    """
+def build_nav_hub_prompt(hub: dict, visited: list) -> str:
+    """Build the Navigator's opening user message with live context for the active Hub Mission."""
     found_summary = get_notes_summary()
-    missing = get_missing_fields()
+    missing_in_hub = get_hub_missing_fields(hub)
+    all_missing = get_missing_fields()
 
     found_lines = (
         "\n".join(f"  - {f}: {v[:80]}" for f, v in found_summary.items())
         or "  (none yet)"
     )
 
-    missing_names = ", ".join(t["target"] for t in missing) or "(all found)"
+    hub_missing_names = ", ".join(missing_in_hub) or "(all fields in this hub found!)"
+    other_missing = [
+        t["target"] for t in all_missing if t["target"] not in hub["target_fields"]
+    ]
+    other_missing_names = ", ".join(other_missing) or "(none)"
 
     visited_block = (
-        "\n".join(f"  - {u}" for u in visited[-20:]) if visited else "  (none yet)"
+        "\n".join(f"  - {u}" for u in visited[-15:]) if visited else "  (none yet)"
     )
 
     return (
-        f"Research this university website for the current target field: '{active_target['target']}'.\n"
-        f"Description: {active_target['discription']}\n"
+        f"Active Research Hub Mission: '{hub['title']}'\n"
+        f"Mission Objective: {hub['discription']}\n"
         f"Starting URL: {START_URL}\n\n"
-        f"## Already found (skip navigating solely for these)\n{found_lines}\n\n"
-        f"## Still missing\n{missing_names}\n\n"
-        f"## Already visited URLs (skip re-scanning these — jump to the best unvisited link)\n{visited_block}\n\n"
-        "Begin: call `scanAndExtract`, then `get_links`, then `openPage` — all in this turn."
+        f"## Priority Missing Fields for This Hub:\n{hub_missing_names}\n\n"
+        f"## Other Missing Fields Across Site:\n{other_missing_names}\n\n"
+        f"## Already Found (skip navigating solely for these):\n{found_lines}\n\n"
+        f"## Recently Visited URLs (skip re-scanning these):\n{visited_block}\n\n"
+        "Begin: call `scanAndExtract`, then `get_links`, then `openPage` ? all in this turn."
     )
+
+
+def build_nav_user_prompt(active_target, visited):
+    """Fallback legacy prompt builder."""
+    if isinstance(active_target, dict) and "target_fields" in active_target:
+        return build_nav_hub_prompt(active_target, visited)
+    return build_nav_hub_prompt(HUB_MISSIONS[0], visited)
 
 
 EXTRACTOR_SYSTEM_PROMPT = f"""You are the information extraction agent for a scholarship research system.
@@ -958,208 +1221,278 @@ Do not restrict extraction to the active navigation target. The target tells you
 After inspecting the page and recording all supported findings with `save_note`, reply with 'done'."""
 
 
-def start_researching():
-    global target_field
-    load_previous_results()
+def start_researching(
+    target_url: str = None, college_name: str = None, fresh: bool = False
+):
+    start = time.perf_counter()
+    global target_field, client, START_URL
+    if target_url:
+        set_target_url(target_url)
+    if fresh or target_url:
+        reset_research_session(clear_saved_file=fresh)
+    else:
+        load_previous_results()
+    nav_reasoning = ""
+    total_token_used = 0
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         global page
         page = browser.new_page()
-        # Navigate to a URL (waits for the page to load)
-        page.goto(START_URL, timeout=60000, wait_until="domcontentloaded")
-        message: list = [
-            {"role": "system", "content": NAV_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": build_nav_user_prompt(target_field, visited_links),
-            },
-        ]
+        # =====================================================================
+        # Phase 1: Common App Pre-flight Enrichment
+        # Query Common App explore catalog FIRST before launching the expensive crawl.
+        # Resolves 8-12 foundational fields in seconds, clearing them from target_manager.
+        # =====================================================================
+        print("\n" + "=" * 65)
+        print("[CommonApp Pre-flight] Running Common App catalog search FIRST...")
+        print("=" * 65 + "\n")
 
-        model_result = None  # filled when the model outputs its final JSON directly
-        count = 0
-        no_tool_retries = 0
-
-        print(f"started searching for {target_field['target']}")
-        while targets_unchecked() > 0:
-            if target_field["status"] == "found":
-                next_target = next_target_field()
-                if next_target is None:
-                    print("All targets have been found.")
+        if not college_name:
+            for note in notes:
+                if note.get("field") == "organization" and note.get("value"):
+                    college_name = note["value"]
                     break
-                target_field = next_target
-                page.goto(START_URL)
-                message.append(
-                    {
-                        "role": "user",
-                        "content": build_nav_user_prompt(target_field, visited_links),
-                    }
-                )
-                print(
-                    f"switched to next target: {target_field['target']} — {target_field['discription']}"
-                )
-                count = 0
+        if not college_name:
+            parts = urlsplit(START_URL).netloc.lower().removeprefix("www.").split(".")
+            college_name = parts[0].replace("-", " ").title()
 
-            count += 1
+        try:
+            run_commonapp_fallback(college_name, playwright_instance=p)
+        except Exception as e:
+            print(f"[CommonApp Pre-flight] Error during initial Common App check: {e}")
+
+        # Refresh next target after Common App pre-flight
+        nxt = next_target_field()
+        if nxt:
+            target_field = nxt
             print(
-                f"----------------------cycle {count}--------------------------------\n"
+                f"[CommonApp Pre-flight] Remaining navigation target: '{target_field['target']}'"
             )
-            if count >= 20:
-                next_target = interrupt_and_change(page, message, target_field, count)
-                if next_target is None:
-                    break
-                target_field = next_target
-                count = 0
-            chat_completion = None
-            for attempt in range(1, 4):  # up to 3 tries
-                try:
-                    print(f"nav model computing .... (attempt {attempt}/3)")
-                    chat_completion = client.chat.completions.create(
-                        messages=message, model="openai/gpt-oss-120b", tools=nav_tools
+        else:
+            print(
+                "[CommonApp Pre-flight] All targets satisfied from Common App pre-flight!"
+            )
+
+        # =====================================================================
+        # Phase 2: Autonomous Hub Missions Navigation
+        # Replaces 27 individual searches with 3 structured Hub Missions.
+        # Eliminates repeated homepage resets and prevents 20-cycle dead ends.
+        # =====================================================================
+        print(
+            f"\n[Hub Navigator] Beginning structured Hub-based crawl across {len(HUB_MISSIONS)} missions."
+        )
+
+        model_result = None
+        finish_requested = False
+
+        for hub_idx, hub in enumerate(HUB_MISSIONS, 1):
+            global current_hub
+            current_hub = hub
+            if targets_unchecked() == 0:
+                print(
+                    "[Hub Navigator] All targets satisfied across all hubs. Research complete."
+                )
+                break
+
+            missing_in_hub = get_hub_missing_fields(hub)
+            if not missing_in_hub:
+                print(
+                    f"\n[Hub {hub_idx}/3: {hub['title']}] All fields in this hub already found. Skipping."
+                )
+                continue
+
+            print("\n" + "=" * 65)
+            print(f"[Hub {hub_idx}/3: {hub['title']}] Starting Mission")
+            print(f"Objective: {hub['discription']}")
+            print(
+                f"Targeting {len(missing_in_hub)} missing field(s): {', '.join(missing_in_hub)}"
+            )
+            print("=" * 65 + "\n")
+
+            # Reset to university homepage once per Hub mission
+            page.goto(START_URL, timeout=60000, wait_until="domcontentloaded")
+            message: list = [
+                {"role": "system", "content": NAV_SYSTEM_PROMPT},
+                {"role": "user", "content": build_nav_hub_prompt(hub, visited_links)},
+            ]
+
+            max_cycles = hub.get("max_cycles", 15)
+            hub_cycle = 0
+            no_tool_retries = 0
+
+            while hub_cycle < max_cycles:
+                # Early exit if all target fields in this hub have been extracted
+                if is_hub_completed(hub):
+                    print(
+                        f"\n[Hub {hub_idx}/3] All target fields in '{hub['title']}' found! Concluding hub mission early.\n"
                     )
-                    break  # success, stop retrying
-                except RateLimitError as e:
-                    print(f"Rate limit hit: {e}")
-                    if attempt < 3:
-                        print("Retrying in 30 seconds...")
-                        time.sleep(30)
-                    else:
-                        print("Rate limit: all 3 attempts failed, safely exiting.")
-                except APIConnectionError as e:
-                    print(f"Connection error: {e}")
-                    if attempt < 3:
-                        print("Retrying connection in 10 seconds...")
-                        time.sleep(10)
-                    else:
+                    break
+
+                hub_cycle += 1
+                print(
+                    f"---------------------- Hub {hub_idx}/3 ({hub['hub_id']}) - Cycle {hub_cycle}/{max_cycles} ----------------------\n"
+                )
+
+                chat_completion = None
+                for attempt in range(1, 4):
+                    try:
+                        # Prune older get_links from conversation history before calling model
+                        message = prune_older_get_links(message)
                         print(
-                            "Connection error: all 3 attempts failed, safely exiting."
+                            f"nav model computing .... (attempt {attempt}/3, key #{groq_manager.current_idx})"
+                        )
+                        chat_completion = client.chat.completions.create(
+                            messages=message,
+                            model="openai/gpt-oss-120b",
+                            tools=nav_tools,
                         )
                         break
-                except BadRequestError as e:
-                    if error_code(e) == "tool_use_failed" or "tool_use_failed" in str(
-                        e
-                    ):  # second check is a safety net
-                        message.append(
-                            {
-                                "role": "user",
-                                "content": "your last tool call used an invalid tool name or parameters; use only the exact names and parameter rules you were given",
-                            }
+                    except RateLimitError as e:
+                        print(
+                            f"[Groq RateLimitError on key #{groq_manager.current_idx}] {e}"
                         )
-                        print(f"tool call glitch, retrying: {e}")
-                        time.sleep(3)
-                        continue  # try the same request again
-                    print(
-                        f"bad request (not retryable): {e}"
-                    )  # any other 400 is a real bug in your request
-                    break
-                except Exception as e:
-                    # 413 = request too large.
-                    if "413" in str(e):
-                        print(f"Request too large, retrying: {e}")
-                        if attempt < 3:
-                            time.sleep(5)
-                        else:
-                            print("Still too large. Safely exiting.")
+                        client = groq_manager.rotate_to_next_key()
+                        print(
+                            f"[Groq Key Manager] Rotated to key #{groq_manager.current_idx}. Retrying immediately..."
+                        )
+                        time.sleep(1)
                         continue
-                    if "openPage" in str(e) or "get_links" in str(e):
+                    except APIConnectionError as e:
+                        print(f"Connection error: {e}")
+                        if attempt < 3:
+                            time.sleep(10)
+                        else:
+                            break
+                    except BadRequestError as e:
+                        if error_code(
+                            e
+                        ) == "tool_use_failed" or "tool_use_failed" in str(e):
+                            message.append(
+                                {
+                                    "role": "user",
+                                    "content": "openPage accepts link_id as an integer from get_links or a full URL string (e.g. 'https://...'). get_links and scanAndExtract take NO arguments.",
+                                }
+                            )
+                            print(f"tool call glitch, retrying: {e}")
+                            time.sleep(2)
+                            continue
+                        print(f"bad request (not retryable): {e}")
+                        break
+                    except Exception as e:
+                        if (
+                            "429" in str(e)
+                            or "rate_limit" in str(e).lower()
+                            or "tpm" in str(e).lower()
+                        ):
+                            print(
+                                f"[Groq Quota/Rate Limit on key #{groq_manager.current_idx}] {e}"
+                            )
+                            client = groq_manager.rotate_to_next_key()
+                            print(
+                                f"[Groq Key Manager] Rotated to key #{groq_manager.current_idx}. Retrying attempt {attempt}..."
+                            )
+                            time.sleep(1)
+                            continue
+                        if "413" in str(e):
+                            print(f"Request too large, retrying: {e}")
+                            system_msgs = [
+                                m
+                                for m in message
+                                if isinstance(m, dict) and m.get("role") == "system"
+                            ]
+                            non_system = [
+                                m
+                                for m in message
+                                if not (
+                                    isinstance(m, dict) and m.get("role") == "system"
+                                )
+                            ]
+                            if len(non_system) > 6:
+                                non_system = non_system[4:]
+                                message = system_msgs + non_system
+                            continue
+                        if "openPage" in str(e) or "get_links" in str(e):
+                            message.append(
+                                {
+                                    "role": "user",
+                                    "content": "scanAndExtract and get_links take NO arguments. openPage takes integer link_id or direct URL string.",
+                                }
+                            )
+                            continue
+                        print(f"unexpected model error: {e}")
+                        break
+
+                if chat_completion is None:
+                    print(
+                        f"[Hub {hub_idx}/3] Model completion returned None. Ending current hub."
+                    )
+                    break
+
+                usage = chat_completion.usage.prompt_tokens
+                total_token_used += int(usage)
+                try:
+                    reasoning = chat_completion.choices[0].message.reasoning
+                    if reasoning:
+                        nav_reasoning += str(reasoning)
+                except Exception:
+                    pass
+                print(f"done, prompt_tokens used: {usage}")
+
+                response = chat_completion.choices[0].message
+                message.append(response)
+
+                if response.tool_calls:
+                    no_tool_retries = 0
+                    for tool_call in response.tool_calls:
+                        function_name = tool_call.function.name.split("<|")[0].strip()
+                        tool_names[tool_call.id] = function_name
+                        args_raw = tool_call.function.arguments
+                        arguments = json.loads(args_raw) if args_raw else ""
+                        print(f"{function_name}({arguments}) called")
+                        function_response = runFunction(function_name, arguments)
+                        if function_name == "get_links":
+                            link_list_info[tool_call.id] = {
+                                "path": short_path(page.url),
+                                "count": str(function_response).count("\n"),
+                            }
+                        elif function_name == "save_results":
+                            finish_requested = True
                         message.append(
                             {
-                                "role": "user",
-                                "content": "scanAndExtract and get_links don't take any arguments. openPage takes link_id.",
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": str(function_response),
                             }
                         )
-                        print(f"openPage or get_links error: {e}")
-                    print(f"unexpected model error: {e}")
+                        nav_reasoning += f". function response: {function_response}"
+                    if finish_requested:
+                        print(
+                            f"[Hub {hub_idx}/3] Navigator concluded current mission via save_results. Advancing to next hub."
+                        )
+                        finish_requested = False
+                        break
+                else:
+                    print(
+                        f"Navigator text response (no tool call): \n{response.content}"
+                    )
+                    no_tool_retries += 1
+                    if no_tool_retries >= 3:
+                        print(
+                            f"[Hub {hub_idx}/3] Navigator responded without tool calls 3 times. Advancing to next hub."
+                        )
+                        break
                     message.append(
                         {
                             "role": "user",
-                            "content": f"An error occurred: {e}",
+                            "content": (
+                                f"You responded with text instead of calling a tool. You must use your navigation tools to make progress. "
+                                f"Please continue researching for '{hub['title']}' using `get_links`, `openPage`, `scanAndExtract`, or `clickButton`."
+                            ),
                         }
                     )
-                    continue
-            if chat_completion is None:
-                break
-            usage = chat_completion.usage.prompt_tokens
-            try:
-                reasoning = chat_completion.choices[0].message.reasoning
-                if reasoning:
-                    print(f"Reasoning: \n{reasoning}\n")
-            except Exception as e:
-                print(f"couldn't get resoning: error -> {e}")
-            print(f"done, prompt_tokens used: {usage}")
-            response = chat_completion.choices[0].message
-            message.append(response)
-            if response.tool_calls:
-                no_tool_retries = 0
-                finish_requested = False
-                for tool_call in response.tool_calls:
-                    function_name = (
-                        tool_call.function.name.split("<|")[0].strip()
-                    )  # strip leaked model tokens e.g. scanPage<|channel|>commentary
-                    tool_names[tool_call.id] = function_name
-                    args = tool_call.function.arguments
-                    arguments = json.loads(args) if args else ""
-                    print(f"{function_name}({arguments}) called")
-                    function_response = runFunction(
-                        function_name,
-                        arguments,
-                    )
-                    if (
-                        function_name == "get_links"
-                    ):  # remember where this list came from, for the placeholder
-                        link_list_info[tool_call.id] = {
-                            "path": short_path(
-                                page.url
-                            ),  # you already have short_path()
-                            "count": str(function_response).count(
-                                "\n"
-                            ),  # one line per link (the header line adds none)
-                        }
-                    elif function_name == "save_results":
-                        finish_requested = True
-                    message.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": str(function_response),
-                        }
-                    )
-                if finish_requested:
-                    print("Navigator called save_results. Ending navigation.")
-                    break
-            else:
-                print(f"final LLM response: \n{response.content}")
-                try:
-                    raw = (response.content or "").strip()
-                    json_start = raw.find("{")
-                    json_end = raw.rfind("}") + 1
-                    if json_start != -1 and json_end > json_start:
-                        model_result = json.loads(raw[json_start:json_end])
-                        print("Parsed model's final JSON output successfully.")
-                        break
-                    else:
-                        print("Warning: final response contained no JSON object.")
-                except json.JSONDecodeError as e:
-                    print(f"Warning: could not parse final response as JSON: {e}")
-
-                if targets_unchecked() == 0:
-                    print("All targets researched. Finishing.")
-                    break
-
-                no_tool_retries += 1
-                if no_tool_retries >= 3:
-                    print(
-                        "Navigator responded without tool calls 3 times. Safely exiting."
-                    )
-                    break
-                message.append(
-                    {
-                        "role": "user",
-                        "content": f"Please continue researching target '{target_field['target']}' using your tools: `scanAndExtract`, `get_links`, or `openPage`.",
-                    }
-                )
 
         # Fallback: If missing fields remain after primary site crawl, enrich via Common App
-        missing_fields = get_missing_fields()
+        missing_fields = get_missing_fields()  # marked
         if missing_fields:
             print(f"\n{'=' * 65}")
             print(
@@ -1183,13 +1516,22 @@ def start_researching():
                 college_name = parts[0].replace("-", " ").title()
 
             try:
-                from commonapp_fallback import run_commonapp_fallback
-
                 run_commonapp_fallback(college_name, playwright_instance=p)
             except Exception as e:
                 print(f"[Fallback] Common App fallback encountered error: {e}")
-
-        nav_walkthrough_record(message, page_history, visited_links)
+        end = time.perf_counter()
+        total_excution_duration = f"total excution duration: {end - start:.3f}"
+        print(
+            f"\n +++++++++++ time:{total_excution_duration}s, total token: {total_token_used} ++++++++++++++++++++"
+        )
+        nav_walkthrough_record(
+            message,
+            page_history,
+            visited_links,
+            nav_reasoning,
+            total_excution_duration,
+            total_token_used,
+        )
         # Use the model's direct JSON output if available; otherwise assemble from saved notes.
         if model_result is not None:
             output_path = "scholarship_result.json"

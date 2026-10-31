@@ -5,14 +5,65 @@ from datetime import datetime
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
+from google import genai
 from groq import Groq
 
 load_dotenv()
 
-START_URL = "https://www.amherst.edu/"
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY2") or os.environ.get("GROQ_API_KEY"),
-)
+START_URL = "https://www.gatech.edu/"
+
+
+class GroqKeyManager:
+    """Manages a pool of Groq API keys with round-robin rotation and automatic failover on rate limits."""
+
+    def __init__(self):
+        candidate_vars = [
+            "GROQ_API_KEY",
+            "GROQ_API_KEY2",
+            "GROQ_API_KEY_ICLONE",
+            "GROQ_API_KEY_HUB",
+            "GROQ_API_KEY_DAGNE",
+        ]
+        self.keys = []
+        for var in candidate_vars:
+            val = os.environ.get(var)
+            if val and val.strip() and val.strip() not in self.keys:
+                self.keys.append(val.strip())
+        for k, v in os.environ.items():
+            if (
+                k.startswith("GROQ_API_KEY")
+                and v
+                and v.strip()
+                and v.strip() not in self.keys
+            ):
+                self.keys.append(v.strip())
+        self.current_idx = 0
+        if not self.keys:
+            print("[GroqKeyManager] Warning: No Groq API keys found in environment.")
+        else:
+            print(
+                f"[GroqKeyManager] Initialized with pool of {len(self.keys)} Groq key(s)."
+            )
+
+    def get_client(self) -> Groq:
+        if not self.keys:
+            return Groq(api_key="missing")
+        return Groq(api_key=self.keys[self.current_idx])
+
+    def rotate_to_next_key(self) -> Groq:
+        if not self.keys:
+            return Groq(api_key="missing")
+        old_idx = self.current_idx
+        self.current_idx = (self.current_idx + 1) % len(self.keys)
+        print(
+            f"[GroqKeyManager] Rotated active key: #{old_idx} -> #{self.current_idx} (of {len(self.keys)} total keys)."
+        )
+        return self.get_client()
+
+
+groq_manager = GroqKeyManager()
+client = groq_manager.get_client()
+gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 
 NOTE_FIELDS = [
@@ -48,531 +99,443 @@ target_manager = [
     {
         "target": "organization",
         "discription": (
-            "The primary institution, foundation, or university offering the "
-            "opportunity. It identifies the governing entity responsible for "
-            "administering the program, reviewing candidates, and granting "
-            "admissions or funding decisions."
+            "The primary institution, foundation, or university offering the opportunity to international students. Identifies the governing entity responsible for administering admissions, evaluating foreign credentials, and granting international admission and funding decisions."
         ),
         "status": "unknown",
     },
     {
         "target": "eligible_countries",
         "discription": (
-            "The designated nationalities, citizenship statuses, or geographic "
-            "regions eligible to apply. It establishes regional eligibility bounds, "
-            "outlining whether the program is open globally or restricted to specific "
-            "sovereign territories."
+            "The designated nationalities, non-citizen statuses, or geographic regions eligible to apply as international students. Clarifies whether all foreign countries are eligible, regional restrictions, and whether undocumented, DACA, or refugee students are eligible or classified alongside international applicants."
         ),
         "status": "unknown",
     },
     {
         "target": "notable_accolades",
         "discription": (
-            "A record of key awards, prestige markers, institutional rankings, or "
-            "recognized honors associated with the entity or award. It highlights "
-            "the competitive distinction and external reputation of the program."
+            "A record of key awards, prestige markers, global institutional rankings (e.g. QS, THE, US News Global), or recognized distinctions of the university relevant to international students evaluating the institution."
         ),
         "status": "unknown",
     },
     {
         "target": "education_levels",
         "discription": (
-            "The specific academic tiers targeted by the opportunity, such as "
-            "high school, undergraduate, master's, or doctoral studies. It ensures "
-            "applicants match the requisite stage of their educational trajectory."
+            "The specific academic tiers open to international applicants, such as undergraduate (first-year / transfer), master's, or doctoral studies. Ensures foreign applicants match the required stage of their educational trajectory."
         ),
         "status": "unknown",
     },
     {
         "target": "fields",
         "discription": (
-            "The qualifying academic disciplines, majors, or subject areas covered "
-            "by the program. It delineates whether support is restricted to STEM, "
-            "humanities, or other specializations, or open to all areas of study."
+            "The qualifying academic disciplines, majors, or degree programs open to international students. Clarifies whether international students can enroll in all majors or if certain specialized or restricted fields (e.g. clinical medicine, military/security programs, or state-restricted tracks) are excluded."
         ),
         "status": "unknown",
     },
     {
         "target": "minimum_gpa",
         "discription": (
-            "The lowest acceptable grade point average or equivalent academic "
-            "score required for consideration. It establishes the baseline baseline "
-            "academic standard necessary to qualify for formal application review."
-        ),
-        "status": "unknown",
-    },
-    {
-        "target": "max_age",
-        "discription": (
-            "The upper age limit an applicant must satisfy at the time of submission "
-            "or enrollment. It sets clear demographic thresholds for youth or "
-            "early-career programs that enforce chronological eligibility caps."
+            "The lowest acceptable grade point average (GPA) or equivalent international secondary school credential standard required for international applicants (e.g. US 4.0 scale conversion, British A-Levels, IB Diploma, French Baccalaureate, Indian CBSE/ICSE, etc.)."
         ),
         "status": "unknown",
     },
     {
         "target": "deadline",
         "discription": (
-            "The application and financial aid cut-off dates and deadlines, including "
-            "Early Decision (ED / ED II), Early Action (EA / EA II), Regular Decision (RD), "
-            "and financial aid deadlines (FD). Record all specific dates and decision rounds."
+            "Application and financial aid cut-off dates specifically applicable to international students, including Early Decision (ED / ED II), Early Action (EA / EA II), Regular Decision (RD), and financial aid deadlines (FD). Highlight earlier priority deadlines mandated for international students to allow sufficient time for visa and I-20 processing."
         ),
         "status": "unknown",
     },
     {
         "target": "required_documents",
         "discription": (
-            "The complete inventory of necessary verification records, including "
-            "academic transcripts, resumes, identity cards, essays etc needed to apply to the university or scholarship. "
-            "These documents substantiate the applicant's qualifications during administrative screening."
+            "The complete inventory of verification records required specifically from international applicants, including official foreign transcripts with certified English translations, credential evaluations (e.g. WES, ECE), passport copy, International Student Financial Aid Application (ISFAA) or CSS Profile, Certificate of Finances (COF), bank statements/proof of funding for I-20 visa issuance, counselor/teacher recommendations, and essays."
         ),
         "status": "unknown",
     },
     {
         "target": "application_url",
         "discription": (
-            "The official direct web portal or link where applicants initiate, complete, "
-            "and transmit their submission. It serves as the canonical digital entry "
-            "point for the application system."
+            "The official direct web portal or admissions page designated for international applicants to initiate, complete, and submit their application for admission."
         ),
         "status": "unknown",
     },
     {
         "target": "application_process",
         "discription": (
-            "The sequential procedure and operational stages required to complete an "
-            "application, from initial account creation to interviews and decision releases. "
-            "It guides the applicant through every milestone from start to finish."
+            "The sequential operational stages for international applicants, from initial account creation and foreign credential submission to English language proficiency verification, financial aid declaration, virtual interviews (e.g. InitialView/Vericant), decision notification, and I-20/F-1 visa document processing."
         ),
         "status": "unknown",
     },
     {
         "target": "number_of_recommendation_letters_required",
         "discription": (
-            "The exact quantity of professional or academic letters of recommendation "
-            "mandated for a complete file. It defines how many external evaluations from "
-            "mentors, professors, or supervisors must be uploaded."
+            "The exact quantity of professional or academic letters of recommendation mandated for an international applicant's file, defining how many evaluations from teachers, headmasters, or counselors must be submitted."
         ),
         "status": "unknown",
     },
     {
         "target": "essays_required",
         "discription": (
-            "what kind of essays are requred. examples are personal essays, university spicific essays etc."
-            "also the number of essays requried."
-            "any discription on the essays like what its prompts are. and number of characters required"
+            "The required application essays, personal statements, and university-specific supplemental essay prompts for international applicants, including prompt topics, word/character limits, and any international-specific essays (e.g. cultural perspective, global background, or educational context statements)."
         ),
         "status": "unknown",
     },
     {
         "target": "financial_aid_policy",
         "discription": (
-            "The institutional framework defining how grants, loans, scholarships, and "
-            "work-study funds are allocated. It clarifies whether aid meets full demonstrated "
-            "need and what conditions govern recurring disbursements."
+            "The institutional financial aid policy specifically governing international (non-US citizen/non-permanent resident) students. Crucially details whether the university offers need-based financial aid to international students, whether it meets 100% of demonstrated financial need for admitted internationals, whether aid packages consist of grants vs loans, and required forms (CSS Profile or ISFAA; note that US federal FAFSA is not available to international students)."
         ),
         "status": "unknown",
     },
     {
         "target": "tuition_waiver_threshold",
         "discription": (
-            "The financial, income, or merit criteria required to receive a full or partial "
-            "remission of tuition costs. It establishes the baseline at which the institution "
-            "absorbs instruction expenses on behalf of the student."
+            "The financial, income, or merit criteria for international students to qualify for full or partial tuition remission, out-of-state/international tuition exemptions, or full-ride international scholarships."
         ),
         "status": "unknown",
     },
     {
         "target": "accepted_application_platform",
         "discription": (
-            "The centralized third-party software or proprietary portal used to collect applications, "
-            "such as the Common App, Coalition App, or an internal portal. It informs applicants "
-            "where their file must be created and lodged."
+            "The centralized third-party platforms or proprietary portals accepted for international applications, such as the Common Application, Coalition on Scoir, or direct international university portals."
         ),
         "status": "unknown",
     },
     {
         "target": "application_fee",
         "discription": (
-            "The non-refundable processing charge required to finalize and submit the application. "
-            "It outlines the baseline administrative cost alongside any eligible institutional "
-            "waiver options."
+            "The non-refundable application fee charged to international applicants (noting any differential from domestic fees) and whether institutional fee waivers are available and accepted for international students."
         ),
         "status": "unknown",
     },
     {
         "target": "country_located",
         "discription": (
-            "The country where the university or institution is physically "
-            "located. Record the country in which the institution operates, "
-            "not the applicant's country of citizenship."
+            "The host country where the university or institution is physically located (e.g., United States), where the international student will travel and study on a student visa."
         ),
         "status": "unknown",
     },
     {
         "target": "campus_locations",
         "discription": (
-            "The physical locations of the university's campuses, including "
-            "the cities, regions, and countries where its main campus and "
-            "additional campuses are situated."
+            "The physical locations of the university's campuses where international students study and are eligible for on-campus housing and international student visa sponsorship."
         ),
         "status": "unknown",
     },
     {
         "target": "university_type",
         "discription": (
-            "The classification of the university or institution, such as "
-            "public, private, nonprofit, for-profit, or specialized institution. "
-            "Record the classification explicitly stated by an official source."
+            "The official classification of the institution (e.g. public state university, private nonprofit research university, liberal arts college) and how this classification affects international student tuition rates and financial aid availability."
         ),
         "status": "unknown",
     },
     {
         "target": "minimum_standardized_test_scores",
         "discription": (
-            "The minimum required scores for standardized admission tests, "
-            "such as the SAT or ACT, for the relevant degree level or program. "
-            "Record each test separately, including minimum total scores, "
-            "section scores, applicable admission requirements, and whether "
-            "the test is required, optional, or not accepted."
-        ),
-        "status": "unknown",
-    },
-    {
-        "target": "school_year_starting_date",
-        "discription": (
-            "The official date or approximate period when the institution's "
-            "academic year begins. Include the relevant term or intake, such "
-            "as fall, spring, or the first semester, and distinguish the start "
-            "of classes from orientation and application deadlines."
+            "The minimum or competitive standardized test scores (SAT or ACT) for international applicants, including section scores, whether testing is required, optional, or test-blind for international students, and any score requirements for merit scholarships."
         ),
         "status": "unknown",
     },
     {
         "target": "funding_type",
         "discription": (
-            "The category of financial support offered, such as merit-based, "
-            "need-based, government-funded, university-funded, or privately funded."
+            "The categories of funding accessible specifically to international students, such as institutional need-based grants, international merit scholarships, tuition discounts, or athletic/departmental awards (excluding US federal aid)."
         ),
         "status": "unknown",
     },
     {
         "target": "annual_tuition_coverage_cost",
         "discription": (
-            "The annual monetary amount or percentage of tuition covered by "
-            "the funding program. Include the currency and distinguish full "
-            "coverage from partial coverage."
+            "The annual monetary amount or percentage of non-resident/international tuition covered by institutional funding or scholarships for international students. Include currency and distinguish full tuition coverage from partial support."
         ),
         "status": "unknown",
     },
     {
         "target": "recommendation_letter_types",
         "discription": (
-            "The required or accepted recommendation letter types, such as "
-            "academic, teacher, counselor, employer, or professional references."
-        ),
-        "status": "unknown",
-    },
-    {
-        "target": "program_delivery_mode",
-        "discription": (
-            "The format in which the academic program is delivered, such as "
-            "on-campus, online, or hybrid."
+            "The required or accepted types of recommendation letters for international students, such as academic subject teachers, school counselors, headmasters, or certified translated references."
         ),
         "status": "unknown",
     },
     {
         "target": "need_blind",
         "discription": (
-            "Whether the institution uses need-blind admissions, meaning "
-            "an applicant's financial need is not considered when making "
-            "admission decisions. Do not confuse this with whether the "
-            "institution meets the student's full demonstrated financial need."
+            "Whether the institution practices need-blind admissions SPECIFICALLY FOR INTERNATIONAL STUDENTS (non-US citizens/non-permanent residents), meaning an international applicant's financial need is not considered during admission decisions. Crucial: Most universities that are need-blind for domestic students are NEED-AWARE for international students; record True ONLY if the policy explicitly covers international applicants."
         ),
         "status": "unknown",
     },
     {
         "target": "sat_required",
         "discription": (
-            "Whether SAT scores are mandatory for admission. Distinguish "
-            "required, optional, test-blind, and conditionally required "
-            "policies where possible. Consider the applicant's degree level "
-            "and application cycle when determining the requirement."
+            "Whether SAT (or ACT) scores are mandatory specifically for international applicants. Record True if required for internationals, False if test-optional/test-blind for internationals, or null if unspecified. Note any international exemptions (e.g. waived for IB/A-Level curriculum or conditionally required if English proficiency benchmarks are not met)."
         ),
         "status": "unknown",
     },
     {
         "target": "english_proficiency_required",
         "discription": (
-            "Whether proof of English proficiency is required for admission, "
-            "such as IELTS, TOEFL, or Duolingo English Test scores. Account "
-            "for exemptions, alternative accepted evidence, and requirements "
-            "that vary by applicant's country, prior education, or program."
+            "Whether proof of English language proficiency is required for international applicants whose native language or language of instruction is not English. Account for specific exemption criteria (e.g. 3+ years at an English-speaking secondary school, IB English scores, or SAT ERW 650+)."
         ),
         "status": "unknown",
     },
     {
         "target": "accepted_english_proficiency_tests",
         "discription": (
-            "The English proficiency tests accepted for admission, such as "
-            "IELTS Academic, TOEFL iBT, Duolingo English Test, PTE Academic, "
-            "or Cambridge English qualifications. Include any test-specific "
-            "minimum score requirements when available, and distinguish "
-            "accepted tests from tests that are mandatory."
+            "The English proficiency examinations accepted from international applicants (e.g. TOEFL iBT, IELTS Academic, Duolingo English Test - DET, Cambridge English C1/C2, PTE Academic) along with any minimum total or sub-score requirements (e.g. TOEFL 100, IELTS 7.5, Duolingo 120)."
         ),
         "status": "unknown",
     },
 ]
 
+
 fields = [
     {
         "field": "organization",
         "discription": (
-            "The primary institution, foundation, or university offering the "
-            "opportunity. It identifies the governing entity responsible for "
-            "administering the program, reviewing candidates, and granting "
-            "admissions or funding decisions."
+            "The primary institution, foundation, or university offering the opportunity to international students. Identifies the governing entity responsible for administering admissions, evaluating foreign credentials, and granting international admission and funding decisions."
         ),
     },
     {
         "field": "eligible_countries",
         "discription": (
-            "The designated nationalities, citizenship statuses, or geographic "
-            "regions eligible to apply. It establishes regional eligibility bounds, "
-            "outlining whether the program is open globally or restricted to specific "
-            "sovereign territories."
+            "The designated nationalities, non-citizen statuses, or geographic regions eligible to apply as international students. Clarifies whether all foreign countries are eligible, regional restrictions, and whether undocumented, DACA, or refugee students are eligible or classified alongside international applicants."
         ),
     },
     {
         "field": "notable_accolades",
         "discription": (
-            "A record of key awards, prestige markers, institutional rankings, or "
-            "recognized honors associated with the entity or award. It highlights "
-            "the competitive distinction and external reputation of the program."
+            "A record of key awards, prestige markers, global institutional rankings (e.g. QS, THE, US News Global), or recognized distinctions of the university relevant to international students evaluating the institution."
         ),
     },
     {
         "field": "education_levels",
         "discription": (
-            "The specific academic tiers targeted by the opportunity, such as "
-            "high school, undergraduate, master's, or doctoral studies. It ensures "
-            "applicants match the requisite stage of their educational trajectory."
+            "The specific academic tiers open to international applicants, such as undergraduate (first-year / transfer), master's, or doctoral studies. Ensures foreign applicants match the required stage of their educational trajectory."
         ),
     },
     {
         "field": "fields",
         "discription": (
-            "The qualifying academic disciplines, majors, or subject areas covered "
-            "by the program. It delineates whether support is restricted to STEM, "
-            "humanities, or other specializations, or open to all areas of study."
+            "The qualifying academic disciplines, majors, or degree programs open to international students. Clarifies whether international students can enroll in all majors or if certain specialized or restricted fields (e.g. clinical medicine, military/security programs, or state-restricted tracks) are excluded."
         ),
     },
     {
         "field": "minimum_gpa",
         "discription": (
-            "The lowest acceptable grade point average or equivalent academic "
-            "score required for consideration. It establishes the baseline baseline "
-            "academic standard necessary to qualify for formal application review."
-        ),
-    },
-    {
-        "field": "max_age",
-        "discription": (
-            "The upper age limit an applicant must satisfy at the time of submission "
-            "or enrollment. It sets clear demographic thresholds for youth or "
-            "early-career programs that enforce chronological eligibility caps."
+            "The lowest acceptable grade point average (GPA) or equivalent international secondary school credential standard required for international applicants (e.g. US 4.0 scale conversion, British A-Levels, IB Diploma, French Baccalaureate, Indian CBSE/ICSE, etc.)."
         ),
     },
     {
         "field": "deadline",
         "discription": (
-            "The application and financial aid cut-off dates and deadlines, including "
-            "Early Decision (ED / ED II), Early Action (EA / EA II), Regular Decision (RD), "
-            "and financial aid deadlines (FD). Record all specific dates and decision rounds."
+            "Application and financial aid cut-off dates specifically applicable to international students, including Early Decision (ED / ED II), Early Action (EA / EA II), Regular Decision (RD), and financial aid deadlines (FD). Highlight earlier priority deadlines mandated for international students to allow sufficient time for visa and I-20 processing."
         ),
     },
     {
         "field": "required_documents",
         "discription": (
-            "The complete inventory of necessary verification records, including "
-            "academic transcripts, resumes, identity cards, essays etc needed to apply to the university or scholarship. "
-            "These documents substantiate the applicant's qualifications during administrative screening."
+            "The complete inventory of verification records required specifically from international applicants, including official foreign transcripts with certified English translations, credential evaluations (e.g. WES, ECE), passport copy, International Student Financial Aid Application (ISFAA) or CSS Profile, Certificate of Finances (COF), bank statements/proof of funding for I-20 visa issuance, counselor/teacher recommendations, and essays."
         ),
     },
     {
         "field": "application_url",
         "discription": (
-            "The official direct web portal or link where applicants initiate, complete, "
-            "and transmit their submission. It serves as the canonical digital entry "
-            "point for the application system."
+            "The official direct web portal or admissions page designated for international applicants to initiate, complete, and submit their application for admission."
         ),
     },
     {
         "field": "application_process",
         "discription": (
-            "The sequential procedure and operational stages required to complete an "
-            "application, from initial account creation to interviews and decision releases. "
-            "It guides the applicant through every milestone from start to finish."
+            "The sequential operational stages for international applicants, from initial account creation and foreign credential submission to English language proficiency verification, financial aid declaration, virtual interviews (e.g. InitialView/Vericant), decision notification, and I-20/F-1 visa document processing."
         ),
     },
     {
         "field": "number_of_recommendation_letters_required",
         "discription": (
-            "The exact quantity of professional or academic letters of recommendation "
-            "mandated for a complete file. It defines how many external evaluations from "
-            "mentors, professors, or supervisors must be uploaded."
+            "The exact quantity of professional or academic letters of recommendation mandated for an international applicant's file, defining how many evaluations from teachers, headmasters, or counselors must be submitted."
         ),
     },
     {
         "field": "essays_required",
         "discription": (
-            "what kind of essays are requred. examples are personal essays, university spicific essays etc."
-            "also the number of essays requried."
-            "any discription on the essays like what its prompts are. and number of characters required"
+            "The required application essays, personal statements, and university-specific supplemental essay prompts for international applicants, including prompt topics, word/character limits, and any international-specific essays (e.g. cultural perspective, global background, or educational context statements)."
         ),
     },
     {
         "field": "financial_aid_policy",
         "discription": (
-            "The institutional framework defining how grants, loans, scholarships, and "
-            "work-study funds are allocated. It clarifies whether aid meets full demonstrated "
-            "need and what conditions govern recurring disbursements."
+            "The institutional financial aid policy specifically governing international (non-US citizen/non-permanent resident) students. Crucially details whether the university offers need-based financial aid to international students, whether it meets 100% of demonstrated financial need for admitted internationals, whether aid packages consist of grants vs loans, and required forms (CSS Profile or ISFAA; note that US federal FAFSA is not available to international students)."
         ),
     },
     {
         "field": "tuition_waiver_threshold",
         "discription": (
-            "The financial, income, or merit criteria required to receive a full or partial "
-            "remission of tuition costs. It establishes the baseline at which the institution "
-            "absorbs instruction expenses on behalf of the student."
+            "The financial, income, or merit criteria for international students to qualify for full or partial tuition remission, out-of-state/international tuition exemptions, or full-ride international scholarships."
         ),
     },
     {
         "field": "accepted_application_platform",
         "discription": (
-            "The centralized third-party software or proprietary portal used to collect applications, "
-            "such as the Common App, Coalition App, or an internal portal. It informs applicants "
-            "where their file must be created and lodged."
+            "The centralized third-party platforms or proprietary portals accepted for international applications, such as the Common Application, Coalition on Scoir, or direct international university portals."
         ),
     },
     {
         "field": "application_fee",
         "discription": (
-            "The non-refundable processing charge required to finalize and submit the application. "
-            "It outlines the baseline administrative cost alongside any eligible institutional "
-            "waiver options."
+            "The non-refundable application fee charged to international applicants (noting any differential from domestic fees) and whether institutional fee waivers are available and accepted for international students."
         ),
     },
     {
         "field": "country_located",
         "discription": (
-            "The country where the university or institution is physically "
-            "located. Record the country in which the institution operates, "
-            "not the applicant's country of citizenship."
+            "The host country where the university or institution is physically located (e.g., United States), where the international student will travel and study on a student visa."
         ),
     },
     {
         "field": "campus_locations",
         "discription": (
-            "The physical locations of the university's campuses, including "
-            "the cities, regions, and countries where its main campus and "
-            "additional campuses are situated."
+            "The physical locations of the university's campuses where international students study and are eligible for on-campus housing and international student visa sponsorship."
         ),
     },
     {
         "field": "university_type",
         "discription": (
-            "The classification of the university or institution, such as "
-            "public, private, nonprofit, for-profit, or specialized institution. "
-            "Record the classification explicitly stated by an official source."
+            "The official classification of the institution (e.g. public state university, private nonprofit research university, liberal arts college) and how this classification affects international student tuition rates and financial aid availability."
         ),
     },
     {
         "field": "minimum_standardized_test_scores",
         "discription": (
-            "The minimum required scores for standardized admission tests, "
-            "such as the SAT or ACT, for the relevant degree level or program. "
-            "Record each test separately, including minimum total scores, "
-            "section scores, applicable admission requirements, and whether "
-            "the test is required, optional, or not accepted."
-        ),
-    },
-    {
-        "field": "school_year_starting_date",
-        "discription": (
-            "The official date or approximate period when the institution's "
-            "academic year begins. Include the relevant term or intake, such "
-            "as fall, spring, or the first semester, and distinguish the start "
-            "of classes from orientation and application deadlines."
+            "The minimum or competitive standardized test scores (SAT or ACT) for international applicants, including section scores, whether testing is required, optional, or test-blind for international students, and any score requirements for merit scholarships."
         ),
     },
     {
         "field": "funding_type",
         "discription": (
-            "The category of financial support offered, such as merit-based, "
-            "need-based, government-funded, university-funded, or privately funded."
+            "The categories of funding accessible specifically to international students, such as institutional need-based grants, international merit scholarships, tuition discounts, or athletic/departmental awards (excluding US federal aid)."
         ),
     },
     {
         "field": "annual_tuition_coverage_cost",
         "discription": (
-            "The annual monetary amount or percentage of tuition covered by "
-            "the funding program. Include the currency and distinguish full "
-            "coverage from partial coverage."
+            "The annual monetary amount or percentage of non-resident/international tuition covered by institutional funding or scholarships for international students. Include currency and distinguish full tuition coverage from partial support."
         ),
     },
     {
         "field": "recommendation_letter_types",
         "discription": (
-            "The required or accepted recommendation letter types, such as "
-            "academic, teacher, counselor, employer, or professional references."
-        ),
-    },
-    {
-        "field": "program_delivery_mode",
-        "discription": (
-            "The format in which the academic program is delivered, such as "
-            "on-campus, online, or hybrid."
+            "The required or accepted types of recommendation letters for international students, such as academic subject teachers, school counselors, headmasters, or certified translated references."
         ),
     },
     {
         "field": "need_blind",
         "discription": (
-            "Whether the institution uses need-blind admissions, meaning "
-            "an applicant's financial need is not considered when making "
-            "admission decisions. Do not confuse this with whether the "
-            "institution meets the student's full demonstrated financial need."
+            "Whether the institution practices need-blind admissions SPECIFICALLY FOR INTERNATIONAL STUDENTS (non-US citizens/non-permanent residents), meaning an international applicant's financial need is not considered during admission decisions. Crucial: Most universities that are need-blind for domestic students are NEED-AWARE for international students; record True ONLY if the policy explicitly covers international applicants."
         ),
     },
     {
         "field": "sat_required",
         "discription": (
-            "Whether SAT scores are mandatory for admission. Distinguish "
-            "required, optional, test-blind, and conditionally required "
-            "policies where possible. Consider the applicant's degree level "
-            "and application cycle when determining the requirement."
+            "Whether SAT (or ACT) scores are mandatory specifically for international applicants. Record True if required for internationals, False if test-optional/test-blind for internationals, or null if unspecified. Note any international exemptions (e.g. waived for IB/A-Level curriculum or conditionally required if English proficiency benchmarks are not met)."
         ),
     },
     {
         "field": "english_proficiency_required",
         "discription": (
-            "Whether proof of English proficiency is required for admission, "
-            "such as IELTS, TOEFL, or Duolingo English Test scores. Account "
-            "for exemptions, alternative accepted evidence, and requirements "
-            "that vary by applicant's country, prior education, or program."
+            "Whether proof of English language proficiency is required for international applicants whose native language or language of instruction is not English. Account for specific exemption criteria (e.g. 3+ years at an English-speaking secondary school, IB English scores, or SAT ERW 650+)."
         ),
     },
     {
         "field": "accepted_english_proficiency_tests",
         "discription": (
-            "The English proficiency tests accepted for admission, such as "
-            "IELTS Academic, TOEFL iBT, Duolingo English Test, PTE Academic, "
-            "or Cambridge English qualifications. Include any test-specific "
-            "minimum score requirements when available, and distinguish "
-            "accepted tests from tests that are mandatory."
+            "The English proficiency examinations accepted from international applicants (e.g. TOEFL iBT, IELTS Academic, Duolingo English Test - DET, Cambridge English C1/C2, PTE Academic) along with any minimum total or sub-score requirements (e.g. TOEFL 100, IELTS 7.5, Duolingo 120)."
         ),
     },
 ]
+
+
+HUB_MISSIONS = [
+    {
+        "hub_id": "admissions_hub",
+        "title": "Admissions, Requirements & Deadlines Hub",
+        "discription": (
+            "Navigate to and explore the Admissions, How to Apply, International Applicants, Requirements, "
+            "and Deadlines pages. Find: application deadlines (ED/EA/RD), testing requirements (SAT/ACT, "
+            "English proficiency: TOEFL/IELTS/Duolingo), minimum GPA, required documents, application fees, "
+            "application platforms, and recommendation letter requirements."
+        ),
+        "target_fields": [
+            "deadline",
+            "required_documents",
+            "application_url",
+            "application_process",
+            "number_of_recommendation_letters_required",
+            "essays_required",
+            "accepted_application_platform",
+            "application_fee",
+            "minimum_gpa",
+            "minimum_standardized_test_scores",
+            "sat_required",
+            "english_proficiency_required",
+            "accepted_english_proficiency_tests",
+            "recommendation_letter_types",
+        ],
+        "max_cycles": 25,
+    },
+    {
+        "hub_id": "financial_aid_hub",
+        "title": "Tuition, Financial Aid & Scholarships Hub",
+        "discription": (
+            "Navigate to and explore the Financial Aid, Tuition & Fees, Costs, Affordability, and Scholarships pages "
+            "for international students. Find: whether admissions is need-blind or need-aware for international students, "
+            "whether 100% of demonstrated financial need is met, international tuition coverage, tuition waiver policies, "
+            "and funding types (grants vs loans, merit scholarships)."
+        ),
+        "target_fields": [
+            "financial_aid_policy",
+            "tuition_waiver_threshold",
+            "funding_type",
+            "annual_tuition_coverage_cost",
+            "need_blind",
+        ],
+        "max_cycles": 15,
+    },
+    {
+        "hub_id": "institutional_hub",
+        "title": "Academics, Overview & Campus Locations Hub",
+        "discription": (
+            "Navigate to and explore the About, Academics, Degree Programs/Majors, Campus Locations, and Profile pages. "
+            "Find: official university name, country located, campus locations, university classification/type, "
+            "degree levels offered, academic fields/majors available, eligible countries, and notable accolades."
+        ),
+        "target_fields": [
+            "organization",
+            "eligible_countries",
+            "notable_accolades",
+            "education_levels",
+            "fields",
+            "country_located",
+            "campus_locations",
+            "university_type",
+        ],
+        "max_cycles": 10,
+    },
+]
+
+
+def get_hub_missing_fields(hub: dict) -> list[str]:
+    """Return list of target names in the specified hub that are not yet found."""
+    return [
+        f
+        for f in hub["target_fields"]
+        if any(t["target"] == f and t["status"] != "found" for t in target_manager)
+    ]
+
+
+def is_hub_completed(hub: dict) -> bool:
+    """Check if all target fields in the hub have been found."""
+    return len(get_hub_missing_fields(hub)) == 0
+
 
 notes = []  # every saved note lives here, in your Python code
 target_field = None
@@ -627,16 +590,19 @@ nav_tools: list = [
         "type": "function",
         "function": {
             "name": "openPage",
-            "description": "navigates to a page by its link id, taken from the get_links list.",
+            "description": "navigates to a page by its link id (from get_links) or directly by a full URL string (e.g. 'https://www.caltech.edu/admissions').",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "link_id": {
-                        "type": "integer",
-                        "description": "the id of the link, from get_links",
-                    }
+                        "anyOf": [{"type": "integer"}, {"type": "string"}],
+                        "description": "the id of the link from get_links, or a direct URL string (e.g. 'https://www.caltech.edu/admissions')",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "optional direct URL string if not passing via link_id",
+                    },
                 },
-                "required": ["link_id"],
             },
         },
     },
@@ -747,6 +713,32 @@ def load_previous_results():
                 )
         except Exception as e:
             print(f"Could not load previous results: {e}")
+
+
+def set_target_url(url: str):
+    """Dynamically set the research target URL and recalculate BASE_DOMAIN."""
+    global START_URL, BASE_DOMAIN
+    START_URL = url
+    BASE_DOMAIN = urlsplit(url).netloc.lower().removeprefix("www.")
+    print(
+        f"[Research Config] Target URL set to: {START_URL} (base domain: {BASE_DOMAIN})"
+    )
+
+
+def reset_research_session(clear_saved_file: bool = False):
+    """Reset in-memory notes and target statuses for a fresh university crawl."""
+    global notes, target_field
+    notes.clear()
+    target_field = None
+    for t in target_manager:
+        t["status"] = "unknown"
+    if clear_saved_file and os.path.exists("scholarship_result.json"):
+        try:
+            os.remove("scholarship_result.json")
+            print("[Research Session] Cleared previous scholarship_result.json.")
+        except Exception as e:
+            print(f"[Research Session] Warning clearing scholarship_result.json: {e}")
+    print("[Research Session] Session state reset for fresh crawl.")
 
 
 def normalize_date_str(date_str, reference_year=None):
@@ -897,14 +889,34 @@ def parse_deadlines_with_llm(deadline_texts: list[str]) -> list[dict]:
 
     user_prompt = f"Raw deadline notes:\n{combined_notes}\n\nParse into a JSON array of deadline objects:"
 
+    # 1. Primary: Use Gemini Interactions API (fast, reliable structured JSON)
+    try:
+        response = gemini_client.interactions.create(
+            model="gemini-3.5-flash-lite",
+            system_instruction=system_prompt,
+            input=user_prompt,
+        )
+        content = (response.output_text or "").strip()
+        clean_content = re.sub(
+            r"^```(?:json)?|```$", "", content, flags=re.MULTILINE
+        ).strip()
+        parsed = json.loads(clean_content)
+        standardized = standardize_deadline_items(parsed, current_year)
+        if standardized:
+            return standardized
+    except Exception as e:
+        print(f"Error parsing deadlines with Gemini: {e}")
+
+    # 2. Secondary fallback: Groq model with sufficient max_tokens
     try:
         response = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            model="openai/gpt-oss-20b",
+            model="openai/gpt-oss-120b",
             temperature=0.0,
+            max_tokens=2048,
         )
         content = (response.choices[0].message.content or "").strip()
         clean_content = re.sub(
@@ -915,7 +927,7 @@ def parse_deadlines_with_llm(deadline_texts: list[str]) -> list[dict]:
         if standardized:
             return standardized
     except Exception as e:
-        print(f"Error parsing deadlines with LLM: {e}")
+        print(f"Error parsing deadlines with Groq fallback: {e}")
 
     # Fallback if LLM call fails or returns empty
     fallback = []
@@ -1004,6 +1016,8 @@ def save_results():
         "accepted_english_proficiency_tests": [],
     }
 
+    bool_vals = ["need_blind", "sat_required", "english_proficiency_required"]
+
     deadline_notes = []
     for note in notes:
         field = note["field"]
@@ -1023,6 +1037,17 @@ def save_results():
                 result["funding"] = {}
             sub_key = field.split("_", 1)[1]  # e.g. "funding_tuition" -> "tuition"
             result["funding"][sub_key] = value
+        elif field in bool_vals:
+            try:
+                value = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                if str(value).lower() == "true":
+                    value = True
+                elif str(value).lower() == "false":
+                    value = False
+                else:
+                    value = None
+            result[field] = value  # write resolved bool back to result
         else:
             result[field] = value  # scalar field: last note wins
 
@@ -1234,24 +1259,22 @@ def interrupt_and_change(page, message, target_field, count=0):
     if next_target is None:
         print("No more unchecked targets remaining.")
         return None
-    message.append(
-        {
-            "role": "user",
-            "content": (
-                f"Target '{target_field['target']}' exhausted its search budget. You are now at the homepage again "
-                f"and your next target is '{next_target['target']}', with description: {next_target['discription']}."
-            ),
-        }
-    )
     print(
-        f"target {target_field['target']} exhausted is search buget,you are now at the homepage again and you're next target is {next_target['target']}, with target discription: {next_target['discription']}"
+        f"target {target_field['target']} exhausted its search budget. Switching to next target: {next_target['target']}"
     )
-    page.goto(START_URL)
+    page.goto(START_URL, timeout=60000, wait_until="domcontentloaded")
     return next_target
 
 
 # recording walktrough
-def nav_walkthrough_record(message, page_history, visited_links):
+def nav_walkthrough_record(
+    message,
+    page_history,
+    visited_links,
+    nav_reasoning,
+    total_excution_duration,
+    total_token_used,
+):
     try:
         now = datetime.now()
         context_report = f"""
@@ -1259,11 +1282,30 @@ def nav_walkthrough_record(message, page_history, visited_links):
         {message}
         
         saved notes -----
-        {notes}
+
+            {notes}
+
         visited Links ===============
-        {visited_links}
+        
+            {visited_links}
+            
         page history ==================
-        {page_history}
+        
+            {page_history}
+            
+        navigation reasoning ===============================
+        
+            {nav_reasoning}
+            
+        navigation reasoning ===============================
+        
+            {total_excution_duration}
+
+        navigation token usage ===============================
+                
+            {total_token_used}
+
+---------------------=========================--------------------------------==========================------------------------
     """
         with open("message_history.txt", "a", encoding="utf-8") as f:
             f.write(str(context_report))

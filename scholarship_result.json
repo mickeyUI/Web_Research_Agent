@@ -1,103 +1,77 @@
 {
-  "organization": "Amherst College",
+  "organization": "Harvard University",
   "eligible_countries": [
-    "international students",
-    "domestic students",
-    "undocumented",
-    "DACA",
-    "non-citizen permanent residents",
-    "those with fragile citizenship"
+    "all over the world (international applicants are welcome)"
   ],
   "notable_accolades": [
-    "Athletics program is the oldest in the country",
-    "81 Division III individual titles and 14 team championships"
+    "Harvard",
+    "the first college in the American colonies",
+    "founded in Cambridge",
+    "Massachusetts on October 28",
+    "1636; oldest corporation in the Western Hemisphere"
   ],
   "education_levels": [
-    "undergraduate",
-    "graduate",
-    "professional school"
+    "undergraduate (first-year / transfer)"
   ],
-  "fields": [
-    "Arts",
-    "Humanities",
-    "Science & Math",
-    "Social Sciences",
-    "Art and the History of Art",
-    "Film and Media Studies",
-    "Music",
-    "Classics",
-    "Anthropology and Sociology",
-    "Physics",
-    "English",
-    "Economics",
-    "European Studies",
-    "Environmental Studies",
-    "Statistics and Data Science"
-  ],
+  "fields": [],
   "minimum_gpa": null,
   "max_age": null,
   "deadline": [
     {
-      "deadline_type": "ED",
-      "date": "2026-11-09"
+      "deadline_type": "EA",
+      "date": "2025-11-01"
     },
     {
       "deadline_type": "RD",
-      "date": "2027-01-05"
+      "date": "2026-01-01"
     },
     {
       "deadline_type": "TR",
-      "date": "2026-11-02"
-    },
-    {
-      "deadline_type": "TR",
-      "date": "2027-03-01"
-    },
-    {
-      "deadline_type": "FD",
-      "date": "2026-11-13"
-    },
-    {
-      "deadline_type": "FD",
-      "date": "2027-01-15"
-    },
-    {
-      "deadline_type": "FD",
-      "date": "2026-11-02"
-    },
-    {
-      "deadline_type": "FD",
-      "date": "2027-03-01"
+      "date": "2026-03-01"
     }
   ],
   "required_documents": [
-    "Secondary school transcript",
-    "Teacher and counselor recommendations",
-    "essays",
-    "writing supplement",
-    "standardized test results (optional / if submitted)"
+    "School Report with counselor letter",
+    "high school transcript",
+    "2 Teacher Reports",
+    "Midyear School Report",
+    "Final School Report (for admitted students); for transfer: College/Dean's/Registrar's report",
+    "Official College Transcript",
+    "2 College Instructor Recommendations",
+    "Official High School Transcript; SAT or ACT; $95 fee or fee waiver"
   ],
-  "application_url": null,
+  "application_url": "https://www.commonapp.org/explore/harvard-university",
   "application_process": null,
-  "number_of_recommendation_letters_required": null,
-  "essays_required": null,
-  "financial_aid_policy": "Our financial aid offers only include grants, scholarships and student employment. Calculated need is met in full for all admitted students, including international and transfer students.",
-  "tuition_waiver_threshold": null,
-  "accepted_application_platform": [],
-  "application_fee": null,
-  "country_located": "United States",
-  "campus_locations": [
-    "New England"
+  "number_of_recommendation_letters_required": "2 teacher reports (for first-year) or 2 college instructor recommendations (for transfer)",
+  "essays_required": "Five required short-answer questions, each with a 150 word limit, covering life experiences, a time of strong disagreement, extracurricular activities, future aspirations, and top 3 things roommates might like to know.",
+  "financial_aid_policy": "Our scholarships are designed to cover 100% of your demonstrated financial need using a combination of scholarship funds and student employment, as well as any awards earned from outside sources. Loans are never required, but are available to interested families.",
+  "tuition_waiver_threshold": "For families with income $100,000 and below with typical assets, the net price is free (covering tuition, fees, food, housing, and more); for family income $200,000 and below with typical assets, tuition is fully covered (Free Tuition Plus).",
+  "accepted_application_platform": [
+    "Common App"
   ],
-  "university_type": null,
+  "application_fee": "$95 fee (or request a fee waiver)",
+  "country_located": "United States of America",
+  "campus_locations": [
+    "Montag Hall",
+    "355 Galvez Street",
+    "Stanford",
+    "CA 94305-6106",
+    "United States of America"
+  ],
+  "university_type": "Private",
   "minimum_standardized_test_scores": [],
   "school_year_starting_date": null,
   "funding_type": null,
   "annual_tuitioin_coveratge_cost": null,
   "recommendation_letter_types": null,
   "program_delivery_mode": null,
-  "need_blind": "true",
-  "sat_required": "false",
+  "need_blind": true,
+  "sat_required": true,
   "english_proficiency_required": null,
-  "accepted_english_proficiency_tests": []
+  "accepted_english_proficiency_tests": [
+    "TOEFL",
+    "IELTS",
+    "and Duolingo (cannot be used to meet the standardized testing requirement",
+    "but can be submitted for review)"
+  ]
 }
